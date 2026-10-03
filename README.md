@@ -7,6 +7,10 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
+<p align="center">
+  <img src="assets/Debian-Cachy-OS.jpeg" alt="Debian CachyOS Kernel Updater" width="750">
+</p>
+
 ---
 
 ## Features
@@ -112,6 +116,8 @@ This generates `Cachy-Kernel-Updater-1.0.0-x86_64.AppImage`.
 ## Project Structure
 
 ```
+├── assets/              # Screenshots and visual media
+│   └── Debian-Cachy-OS.jpeg
 ├── main.py              # GTK4 / Libadwaita User Interface
 ├── kernel_manager.py    # Backend engine: version checking, compilation, install & rollback
 ├── build_deb.sh         # Debian package (.deb) generator script
