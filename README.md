@@ -35,6 +35,7 @@ Pre-compiled packages are available on the [Latest Release Page](https://github.
 * 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/cachy-kernel-updater_1.0.1_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
 * 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/Cachy-Kernel-Updater-1.0.1-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries and logo icons included)
 * 🔧 **[Download libfuse2t64 (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/libfuse2t64_2.9.9-9_amd64.deb)** — Crucial compatibility package for running AppImages on **Debian Testing (Trixie)** & **Debian Sid**
+* 🔐 **[Download Secure Boot Signing Script (`sign-kernel.sh`)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/sign-kernel.sh)** — Automated script to sign custom compiled kernels for UEFI Secure Boot
 
 ---
 
@@ -118,19 +119,49 @@ sudo apt install -y build-essential libncurses-dev bison flex libssl-dev \
 
 ---
 
+## 🔐 Secure Boot & Kernel Signing
+
+> [!WARNING]
+> **Crucial for Systems with Secure Boot Enabled:**
+> Custom compiled Linux kernels are not signed by Debian's official Microsoft-trusted EFI key. If your computer has **UEFI Secure Boot enabled**, your motherboard firmware will refuse to boot the newly compiled CachyOS kernel unless it is signed with a **Machine Owner Key (MOK)**.
+
+### Signing the Kernel with `sign-kernel.sh`
+
+We provide an automated helper script [`sign-kernel.sh`](sign-kernel.sh) to sign the installed kernel image in `/boot`:
+
+```bash
+chmod +x sign-kernel.sh
+sudo ./sign-kernel.sh
+```
+
+#### What `sign-kernel.sh` does:
+1. **Finds or Generates MOK Keys:** Automatically checks for existing `MOK.priv` and `MOK.pem` keys. If you don't have them yet, it generates a new 2048-bit RSA MOK keypair (`MOK.priv`, `MOK.pem`, and `MOK.der`) in the script directory.
+2. **First-time MOK Enrollment:** If keys were just generated, enroll the public key into your UEFI firmware by running:
+   ```bash
+   sudo mokutil --import MOK.der
+   ```
+   Set a simple temporary password. Upon reboot, the blue **MOKManager** screen will appear: select **Enroll MOK** -> **Continue** -> enter the password to enroll the key permanently.
+3. **Installs `sbsigntool`:** Automatically installs `sbsigntool` via `apt` if not already installed.
+4. **Signs the Kernel:** Automatically identifies your newly installed CachyOS kernel in `/boot/` and signs it using `sbsign`.
+
+> [!TIP]
+> **Upcoming In-App Signing:** We are actively working on integrating this Secure Boot signing process directly into the GTK4 application itself, so that signing is automatically offered upon completing kernel installation!
+
+---
+
 ## Building from Source
 
 ### Build the Native Debian Package (`.deb`)
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.0_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.1_all.deb`.
 
 ### Build the AppImage
 ```bash
 ./build_appimage.sh
 ```
-This generates `Cachy-Kernel-Updater-1.0.0-x86_64.AppImage`.
+This generates `Cachy-Kernel-Updater-1.0.1-x86_64.AppImage`.
 
 ---
 
@@ -143,6 +174,7 @@ This generates `Cachy-Kernel-Updater-1.0.0-x86_64.AppImage`.
 ├── kernel_manager.py    # Backend engine: version checking, compilation, install & rollback
 ├── build_deb.sh         # Debian package (.deb) generator script
 ├── build_appimage.sh    # AppImage packaging script
+├── sign-kernel.sh       # Secure Boot MOK signing script
 ├── AppImageBuilder.yml  # AppImage recipe configuration
 ├── requirements.txt     # Python requirements
 ├── LICENSE              # GNU General Public License v3.0
