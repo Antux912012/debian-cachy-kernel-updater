@@ -24,7 +24,14 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 
 ---
 
-## System Requirements & Libraries
+## Downloads (v1.0.0)
+
+Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.0):
+
+* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.0/cachy-kernel-updater_1.0.0_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
+* 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.0/Cachy-Kernel-Updater-1.0.0-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries included)
+
+---
 
 Depending on how you run the application, the required libraries vary:
 
