@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
 PKG_NAME="cachy-kernel-updater"
-PKG_VER="1.0.0"
+PKG_VER="1.0.1"
 DEB_DIR="deb_dist/${PKG_NAME}_${PKG_VER}_all"
 
 echo "=== Cleaning previous deb staging directory ==="
@@ -14,12 +14,17 @@ mkdir -p "${DEB_DIR}/DEBIAN"
 mkdir -p "${DEB_DIR}/usr/bin"
 mkdir -p "${DEB_DIR}/usr/share/cachy-kernel-updater"
 mkdir -p "${DEB_DIR}/usr/share/applications"
+mkdir -p "${DEB_DIR}/usr/share/pixmaps"
 mkdir -p "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps"
+mkdir -p "${DEB_DIR}/usr/share/icons/hicolor/48x48/apps"
+mkdir -p "${DEB_DIR}/usr/share/icons/hicolor/128x128/apps"
+mkdir -p "${DEB_DIR}/usr/share/icons/hicolor/256x256/apps"
+mkdir -p "${DEB_DIR}/usr/share/icons/hicolor/512x512/apps"
 
 echo "=== Creating Debian control file ==="
-cat << 'EOF' > "${DEB_DIR}/DEBIAN/control"
-Package: cachy-kernel-updater
-Version: 1.0.0
+cat << EOF > "${DEB_DIR}/DEBIAN/control"
+Package: ${PKG_NAME}
+Version: ${PKG_VER}
 Section: admin
 Priority: optional
 Architecture: all
@@ -56,46 +61,17 @@ StartupNotify=true
 EOF
 chmod 644 "${DEB_DIR}/usr/share/applications/org.cachyos.debian.kernelupdater.desktop"
 
-echo "=== Creating SVG Application Icon ==="
-cat << 'EOF' > "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/org.cachyos.debian.kernelupdater.svg"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3584e4"/>
-      <stop offset="100%" stop-color="#1c71d8"/>
-    </linearGradient>
-    <linearGradient id="chip" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#241f31"/>
-      <stop offset="100%" stop-color="#3d3846"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#33d17a"/>
-      <stop offset="100%" stop-color="#26a269"/>
-    </linearGradient>
-  </defs>
-  <!-- Background squircle -->
-  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
-  <!-- Central CPU / Kernel Chip -->
-  <rect x="32" y="32" width="64" height="64" rx="12" fill="url(#chip)" stroke="#111" stroke-width="2"/>
-  <!-- Pins -->
-  <rect x="42" y="24" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="58" y="24" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="74" y="24" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="42" y="96" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="58" y="96" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="74" y="96" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="24" y="42" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="24" y="58" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="24" y="74" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="96" y="42" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="96" y="58" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <rect x="96" y="74" width="8" height="8" rx="2" fill="#e5a50a"/>
-  <!-- Upgrade arrow inside chip -->
-  <path d="M64 44 L78 60 L70 60 L70 76 L58 76 L58 60 L50 60 Z" fill="url(#accent)"/>
-  <circle cx="64" cy="83" r="3" fill="url(#accent)"/>
-</svg>
-EOF
-chmod 644 "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/org.cachyos.debian.kernelupdater.svg"
+echo "=== Installing official CachyOS Debian logo icons ==="
+cp -v assets/org.cachyos.debian.kernelupdater.svg "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/"
+cp -v assets/logo_48.png "${DEB_DIR}/usr/share/icons/hicolor/48x48/apps/org.cachyos.debian.kernelupdater.png"
+cp -v assets/logo_128.png "${DEB_DIR}/usr/share/icons/hicolor/128x128/apps/org.cachyos.debian.kernelupdater.png"
+cp -v assets/logo_256.png "${DEB_DIR}/usr/share/icons/hicolor/256x256/apps/org.cachyos.debian.kernelupdater.png"
+cp -v assets/logo_512.png "${DEB_DIR}/usr/share/icons/hicolor/512x512/apps/org.cachyos.debian.kernelupdater.png"
+cp -v assets/logo_256.png "${DEB_DIR}/usr/share/pixmaps/org.cachyos.debian.kernelupdater.png"
+
+chmod 644 "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/"*.svg
+chmod 644 "${DEB_DIR}/usr/share/icons/hicolor/"*/apps/*.png
+chmod 644 "${DEB_DIR}/usr/share/pixmaps/"*.png
 
 echo "=== Building .deb package with dpkg-deb ==="
 dpkg-deb --root-owner-group --build "${DEB_DIR}" "deb_dist/${PKG_NAME}_${PKG_VER}_all.deb"

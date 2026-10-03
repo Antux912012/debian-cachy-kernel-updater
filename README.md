@@ -28,20 +28,22 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 
 ---
 
-## Downloads (v1.0.0)
+## Downloads (v1.0.1)
 
-Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.0):
+Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.1):
 
-* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.0/cachy-kernel-updater_1.0.0_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
-* 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.0/Cachy-Kernel-Updater-1.0.0-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries included)
+* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/cachy-kernel-updater_1.0.1_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
+* 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/Cachy-Kernel-Updater-1.0.1-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries and logo icons included)
 
 ---
 
+### Package Formats & System Libraries
+
 Depending on how you run the application, the required libraries vary:
 
-### 1. Running the AppImage (All Libraries Included)
+#### 1. Running the AppImage (All Libraries Included)
 > [!NOTE]
-> **No external GUI or Python libraries are required.** All runtime dependencies—including **Python 3**, **GTK4**, **Libadwaita**, **PyGObject**, **Requests**, and the **Adwaita Icon Theme**—are fully bundled inside the `.AppImage` executable.
+> **No external GUI or Python libraries are required.** All runtime dependencies—including **Python 3**, **GTK4**, **Libadwaita**, **PyGObject**, **Requests**, and the **CachyOS/Debian Icon Theme**—are fully bundled inside the `.AppImage` executable.
 
 To run the AppImage on Debian, you only need FUSE support:
 ```bash
@@ -49,22 +51,28 @@ sudo apt install -y libfuse2
 ```
 Then execute:
 ```bash
-chmod +x Cachy-Kernel-Updater-1.0.0-x86_64.AppImage
-./Cachy-Kernel-Updater-1.0.0-x86_64.AppImage
+chmod +x Cachy-Kernel-Updater-1.0.1-x86_64.AppImage
+./Cachy-Kernel-Updater-1.0.1-x86_64.AppImage
 ```
 
 ---
 
-### 2. Running the Native Debian Package (`.deb`)
+#### 2. Running the Native Debian Package (`.deb`)
 The `.deb` package defines all runtime dependencies in its control file. When installed via `apt`, all required libraries are resolved and installed automatically:
 
 ```bash
-sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.0_all.deb
+sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.1_all.deb
 ```
 
 ---
 
-### 3. Running Directly from Source (Python)
+#### 3. Flatpak Support (Work in Progress 🚧)
+> [!IMPORTANT]
+> **We are currently working on an official Flatpak version as well.** The Flatpak package is in active development to provide an easy one-click install for users on Flatpak-centric setups and Flathub.
+
+---
+
+#### 4. Running Directly from Source (Python)
 If running from source code (`python3 main.py`), you must ensure the following Debian packages and GTK4 libraries are installed:
 
 | Library Package | Purpose |

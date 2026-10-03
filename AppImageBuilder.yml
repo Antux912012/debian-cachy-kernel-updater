@@ -7,8 +7,8 @@ AppDir:
     exec_args: "$APPDIR/usr/share/cachy-kernel-updater/main.py $@"
     id: org.cachyos.debian.kernelupdater
     name: Cachy-Kernel-Updater
-    icon: utilities-terminal
-    version: 1.0.0
+    icon: org.cachyos.debian.kernelupdater
+    version: 1.0.1
 
   apt:
     arch: amd64
