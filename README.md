@@ -18,55 +18,87 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
    * Configures the kernel with CachyOS scheduler and performance optimizations.
    * Disables Debian trusted keys hurdles and excessive debug symbols to ensure fast, failure-free builds.
    * Compiles the kernel into native `.deb` packages using all available CPU threads.
-5. **Polkit Privilege Escalation:** Safely invokes `pkexec` for password prompts when installing or purging packages and updating GRUB.
+5. **Polkit Privilege Escalation:** Safely invokes `pkexec` for native password prompts when installing or purging packages and updating GRUB.
 6. **Kernel Rollback:** Lists installed `linux-image-*` packages in a safety-first UI dialog, allowing you to purge previous kernels and automatically restore older kernel entries in GRUB.
 7. **Modern Native UI:** Built with **GTK4** and **Libadwaita**, providing dark mode support, titlebar controls, and live terminal logging.
 
 ---
 
-## Installation
+## System Requirements & Libraries
 
-### Option 1: Native Debian Package (`.deb`) [Recommended]
+Depending on how you run the application, the required libraries vary:
 
-Build the `.deb` package using the included build script:
+### 1. Running the AppImage (All Libraries Included)
+> [!NOTE]
+> **No external GUI or Python libraries are required.** All runtime dependencies—including **Python 3**, **GTK4**, **Libadwaita**, **PyGObject**, **Requests**, and the **Adwaita Icon Theme**—are fully bundled inside the `.AppImage` executable.
+
+To run the AppImage on Debian, you only need FUSE support:
 ```bash
-./build_deb.sh
-sudo apt install ./deb_dist/cachy-kernel-updater_1.0.0_all.deb
+sudo apt install -y libfuse2
 ```
-Once installed, you can launch the app from your application menu or by running:
+Then execute:
 ```bash
-cachy-kernel-updater
-```
-
-### Option 2: AppImage
-
-To build an AppImage bundle:
-```bash
-./build_appimage.sh
+chmod +x Cachy-Kernel-Updater-1.0.0-x86_64.AppImage
 ./Cachy-Kernel-Updater-1.0.0-x86_64.AppImage
-```
-
-### Option 3: Run directly from source
-
-Make sure the required runtime dependencies are installed:
-```bash
-sudo apt install -y python3 python3-gi python3-gi-cairo python3-requests \
-    gir1.2-gtk-4.0 gir1.2-adw-1 libadwaita-1-0
-```
-Run the application:
-```bash
-python3 main.py
 ```
 
 ---
 
-## Kernel Build Dependencies
+### 2. Running the Native Debian Package (`.deb`)
+The `.deb` package defines all runtime dependencies in its control file. When installed via `apt`, all required libraries are resolved and installed automatically:
 
-When compiling a custom Linux kernel on Debian, make sure the following build dependencies are installed on your machine:
+```bash
+sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.0_all.deb
+```
+
+---
+
+### 3. Running Directly from Source (Python)
+If running from source code (`python3 main.py`), you must ensure the following Debian packages and GTK4 libraries are installed:
+
+| Library Package | Purpose |
+| :--- | :--- |
+| `python3` | Python runtime |
+| `python3-gi` | Python GObject introspection bindings |
+| `python3-gi-cairo` | Cairo vector graphics bindings for Python |
+| `python3-requests` | HTTP library for querying the official CachyOS GitHub API |
+| `gir1.2-gtk-4.0` | GTK 4.0 graphical toolkit |
+| `gir1.2-adw-1` | Libadwaita 1.0 widget library (GNOME modern styling) |
+| `libadwaita-1-0` | Libadwaita shared C libraries |
+| `policykit-1` or `polkitd` | Provides `pkexec` for secure root privilege prompts |
+
+Install all of them with a single command:
+```bash
+sudo apt update
+sudo apt install -y python3 python3-gi python3-gi-cairo python3-requests \
+    gir1.2-gtk-4.0 gir1.2-adw-1 libadwaita-1-0 policykit-1
+```
+
+---
+
+### 4. Kernel Compilation Dependencies
+To compile the CachyOS kernel (`make bindeb-pkg`), your system requires standard Linux kernel compilation build tools:
+
 ```bash
 sudo apt install -y build-essential libncurses-dev bison flex libssl-dev \
     libelf-dev bc rsync debhelper pahole
 ```
+
+---
+
+## Building from Source
+
+### Build the Native Debian Package (`.deb`)
+```bash
+./build_deb.sh
+```
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.0_all.deb`.
+
+### Build the AppImage
+```bash
+./build_appimage.sh
+```
+This generates `Cachy-Kernel-Updater-1.0.0-x86_64.AppImage`.
 
 ---
 
@@ -79,7 +111,8 @@ sudo apt install -y build-essential libncurses-dev bison flex libssl-dev \
 ├── build_appimage.sh    # AppImage packaging script
 ├── AppImageBuilder.yml  # AppImage recipe configuration
 ├── requirements.txt     # Python requirements
-└── README.md
+├── LICENSE              # GNU General Public License v3.0
+└── README.md            # Documentation & requirements
 ```
 
 ---
