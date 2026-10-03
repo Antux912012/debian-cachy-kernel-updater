@@ -34,6 +34,7 @@ Pre-compiled packages are available on the [Latest Release Page](https://github.
 
 * 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/cachy-kernel-updater_1.0.1_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
 * 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/Cachy-Kernel-Updater-1.0.1-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries and logo icons included)
+* 🔧 **[Download libfuse2t64 (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.1/libfuse2t64_2.9.9-9_amd64.deb)** — Crucial compatibility package for running AppImages on **Debian Testing (Trixie)** & **Debian Sid**
 
 ---
 
@@ -45,11 +46,23 @@ Depending on how you run the application, the required libraries vary:
 > [!NOTE]
 > **No external GUI or Python libraries are required.** All runtime dependencies—including **Python 3**, **GTK4**, **Libadwaita**, **PyGObject**, **Requests**, and the **CachyOS/Debian Icon Theme**—are fully bundled inside the `.AppImage` executable.
 
-To run the AppImage on Debian, you only need FUSE support:
-```bash
-sudo apt install -y libfuse2
-```
-Then execute:
+##### FUSE Requirement on Debian:
+To run any AppImage on Debian, FUSE2 runtime support is required:
+* **On Debian Stable (Bookworm):**
+  ```bash
+  sudo apt install -y libfuse2
+  ```
+* **On Debian Testing (Trixie) & Sid (Unstable):**
+  Due to the 64-bit `time_t` transition in Debian Testing/Sid, `libfuse2` has transitioned to `libfuse2t64`. You can install it via:
+  ```bash
+  sudo apt install -y libfuse2t64
+  ```
+  Or install the provided compatibility package:
+  ```bash
+  sudo dpkg -i libfuse2t64_2.9.9-9_amd64.deb
+  ```
+
+Then execute the AppImage:
 ```bash
 chmod +x Cachy-Kernel-Updater-1.0.1-x86_64.AppImage
 ./Cachy-Kernel-Updater-1.0.1-x86_64.AppImage
