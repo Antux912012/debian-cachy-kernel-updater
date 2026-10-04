@@ -1,0 +1,51 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: all amd64
+Codename: stable
+Components: main
+Date: Sun, 04 Oct 2026 16:26:16 +0000
+Description: Official Debian APT repository for CachyOS Kernel Installer & Updater
+Label: CachyOS Kernel Updater
+Origin: CachyOS Kernel Updater
+Suite: stable
+MD5Sum:
+ 29f29bf64294a36eb37df71c7bc2eb88              255 Release
+ 9cf6d9cb31fe9a0ce95ab710ec94988e              835 main/binary-all/Packages
+ 89f2ea33f752dd31c282273b821a0e9f              570 main/binary-all/Packages.gz
+ 9cf6d9cb31fe9a0ce95ab710ec94988e              835 main/binary-amd64/Packages
+ 89f2ea33f752dd31c282273b821a0e9f              570 main/binary-amd64/Packages.gz
+SHA1:
+ 648504170a52b46dbc6b00ab41e5ba31902432cd              255 Release
+ 14d723278c4c1aeace0dd26e0d98f1d10b1483ee              835 main/binary-all/Packages
+ b4b2899b1dd4b44ce3e538082047caf8bd6a53d7              570 main/binary-all/Packages.gz
+ 14d723278c4c1aeace0dd26e0d98f1d10b1483ee              835 main/binary-amd64/Packages
+ b4b2899b1dd4b44ce3e538082047caf8bd6a53d7              570 main/binary-amd64/Packages.gz
+SHA256:
+ 57910124d1971ed3d28f67390b12cd135ff29dc76e97cf0b6c78737cc99939f5              255 Release
+ 0073f6f9d838332029037786e4af36775bc93c4d54c85206f58dfbf72bf280c8              835 main/binary-all/Packages
+ b03cce609e274bfbd232673598fb142658ff0e6dde8cd076ccdcde843e565201              570 main/binary-all/Packages.gz
+ 0073f6f9d838332029037786e4af36775bc93c4d54c85206f58dfbf72bf280c8              835 main/binary-amd64/Packages
+ b03cce609e274bfbd232673598fb142658ff0e6dde8cd076ccdcde843e565201              570 main/binary-amd64/Packages.gz
+SHA512:
+ d12fd760f3b5e910a9e4c64fe18d1c52abd8a822c6c302e894a462caab1c4d8441fe28bdf3957b68f7d6138ee6cc0c4527e54c86351653f16ba84192705055b4              255 Release
+ f443ebd9df27597ec7345eec1ec1fef11646add472ea646aa082cbd8d73d34dda6c87975797c8a1f5d9a0b80b74abbc06fd460fae5d99d19cfe0f3d68d3f6241              835 main/binary-all/Packages
+ 1c83c663e89f1b8df2a63c70aea42650ba820a482b3f679e17894dd8b1689efa925fbfa928edae24a5881469cf2104a3756caabdc698b757ddf06ea32fe263a0              570 main/binary-all/Packages.gz
+ f443ebd9df27597ec7345eec1ec1fef11646add472ea646aa082cbd8d73d34dda6c87975797c8a1f5d9a0b80b74abbc06fd460fae5d99d19cfe0f3d68d3f6241              835 main/binary-amd64/Packages
+ 1c83c663e89f1b8df2a63c70aea42650ba820a482b3f679e17894dd8b1689efa925fbfa928edae24a5881469cf2104a3756caabdc698b757ddf06ea32fe263a0              570 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEnRwJB1oV170DRfzm/rardb2RlqoFAmrCfigACgkQ/rardb2R
+lqoXlRAAkHjWErhS2/q0Rhk9a1oMbtWroz1W5T6n6uot7rDKz6Umpql5CZJ9EXl8
+cxsredUhiTh7UCU6Egfr9rrPOThN84J/LZ5njDjRw+gYq32/iakU8HKdDwI600D8
+8bUDk0y+MOM4iSU2Wp/I2yzv6dKVq6sAnv2FeixfgLXpG9FTTDEErCW3DJ/M5+AY
+x4oQoaoULVXGLISTqqjzb5c5+zUz0oLo2Pdk3zDqBEfya4cy/kGGYwjnhdwl/YhK
+CaeQt9L36ZQct0UMUv0sZtxp6jEz9W5ie4mrno0yUFBTg8Fi7pxecyDWu6aK51jv
+LMLNcXPOA32quRdHaLObKDAkCfefe/QQ/ESUCpS6+eLMWwxIuaUvOr1m8kWuspw9
+58JFk4/fMK7frtd1F5GGLjnGkk1muSZrz6sEG3Qu1CC113iFHyHqMDvicY+2jcFc
+zf4WHIY4njAs1rcDVTHzyatUEHcEu75kPyC+tMSKQT5pD9J4+SuTni1HZFIpegMT
+93vAxqNh26371x6vga2Xwtc0+2JQq6hY9t2ZOV2g46gWEB1tuC9IvQcmOCkCFKLm
+SbDHoNBvsnpn5OTbQg1/UIfwYVobjsVrxh7BGSGfqT/gADddO+YFq6n7cbZTtuf1
+mx4S3aD4Nn/P5LSZ1iLiFnYN6m3rESQvMAHD5+bRpmN/D7Yd5GE=
+=roCx
+-----END PGP SIGNATURE-----
