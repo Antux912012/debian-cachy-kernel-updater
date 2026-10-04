@@ -9,6 +9,7 @@ class KernelManager:
     def __init__(self):
         self.releases_api = "https://api.github.com/repos/CachyOS/linux/releases?per_page=30"
         self.pkgbuild_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/PKGBUILD"
+        self.cachy_config_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/config"
         cache_base = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
         self.download_dir = os.path.join(cache_base, "cachy-kernel-build")
         self.latest_version = None
