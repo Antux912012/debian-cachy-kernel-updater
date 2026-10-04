@@ -32,6 +32,7 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
    * Configures the kernel with CachyOS scheduler and performance optimizations.
    * Disables Debian trusted keys hurdles and excessive debug symbols to ensure fast, failure-free builds.
    * Compiles the kernel into native `.deb` packages using all available CPU threads.
+   * *Note: Kernel compilation is an intensive workload and can take a while (typically 15 to 45+ minutes) depending on the overall power, CPU cores, and thermal performance of your system.*
 7. **Polkit Privilege Escalation:** Safely invokes `pkexec` for native password prompts when installing or purging packages and updating GRUB.
 8. **Kernel Rollback:** Lists installed `linux-image-*` packages in a safety-first UI dialog, allowing you to purge previous kernels and automatically restore older kernel entries in GRUB.
 9. **Cache Cleanup & Persistent Config Recovery:** Checks and cleans `~/.cache/cachy-kernel-build` every time the app opens, preventing disk bloat while automatically saving and recovering your generated kernel `.config` across kernel updates.
@@ -107,6 +108,10 @@ To compile the CachyOS kernel (`make bindeb-pkg`), your system requires standard
 sudo apt install -y build-essential libncurses-dev bison flex libssl-dev \
     libelf-dev bc rsync debhelper pahole
 ```
+
+> [!NOTE]
+> **Compilation Duration Notice:**
+> Compiling a full Linux kernel is an intensive task that utilizes all available CPU threads. The compilation process can take a while (typically anywhere from 15 to 45+ minutes) depending on the processing power, CPU core count, and cooling capabilities of your system.
 
 ---
 
