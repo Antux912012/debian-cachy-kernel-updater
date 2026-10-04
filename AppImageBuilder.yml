@@ -8,7 +8,7 @@ AppDir:
     id: org.cachyos.debian.kernelupdater
     name: Cachy-Kernel-Updater
     icon: org.cachyos.debian.kernelupdater
-    version: 1.0.2
+    version: 1.0.3
 
   apt:
     arch: amd64

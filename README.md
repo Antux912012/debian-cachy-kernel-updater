@@ -24,18 +24,20 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
    * Compiles the kernel into native `.deb` packages using all available CPU threads.
 5. **Polkit Privilege Escalation:** Safely invokes `pkexec` for native password prompts when installing or purging packages and updating GRUB.
 6. **Kernel Rollback:** Lists installed `linux-image-*` packages in a safety-first UI dialog, allowing you to purge previous kernels and automatically restore older kernel entries in GRUB.
-7. **Modern Native UI:** Built with **GTK4** and **Libadwaita**, providing dark mode support, titlebar controls, and live terminal logging.
+7. **Cache Cleanup & Persistent Config Recovery:** Checks and cleans `~/.cache/cachy-kernel-build` every time the app opens, preventing disk bloat while automatically saving and recovering your generated kernel `.config` across kernel updates.
+8. **One-Click Build Dependencies Installer:** Built-in "Install Dependencies" button to verify and install all required kernel compiler tools (`build-essential`, `libncurses-dev`, `bison`, `flex`, `libssl-dev`, `libelf-dev`, `bc`, `rsync`, `debhelper`, `pahole`, `kmod`, `cpio`) directly from the GUI.
+9. **Modern Native UI:** Built with **GTK4** and **Libadwaita**, providing dark mode support, titlebar controls, and live terminal logging.
 
 ---
 
-## Downloads (v1.0.2)
+## Downloads (v1.0.3)
 
-Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.2):
+Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.3):
 
-* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.2/cachy-kernel-updater_1.0.2_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
-* 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.2/Cachy-Kernel-Updater-1.0.2-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries and logo icons included)
-* 🔧 **[Download libfuse2t64 (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.2/libfuse2t64_2.9.9-9_amd64.deb)** — Crucial compatibility package for running AppImages on **Debian Testing (Trixie)** & **Debian Sid**
-* 🔐 **[Download Secure Boot Signing Script (`sign-kernel.sh`)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.2/sign-kernel.sh)** — Automated script to sign custom compiled kernels for UEFI Secure Boot
+* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/cachy-kernel-updater_1.0.3_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
+* 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/Cachy-Kernel-Updater-1.0.3-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries and logo icons included)
+* 🔧 **[Download libfuse2t64 (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/libfuse2t64_2.9.9-9_amd64.deb)** — Crucial compatibility package for running AppImages on **Debian Testing (Trixie)** & **Debian Sid**
+* 🔐 **[Download Secure Boot Signing Script (`sign-kernel.sh`)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/sign-kernel.sh)** — Automated script to sign custom compiled kernels for UEFI Secure Boot
 
 ---
 
@@ -65,8 +67,8 @@ To run any AppImage on Debian, FUSE2 runtime support is required:
 
 Then execute the AppImage:
 ```bash
-chmod +x Cachy-Kernel-Updater-1.0.2-x86_64.AppImage
-./Cachy-Kernel-Updater-1.0.2-x86_64.AppImage
+chmod +x Cachy-Kernel-Updater-1.0.3-x86_64.AppImage
+./Cachy-Kernel-Updater-1.0.3-x86_64.AppImage
 ```
 
 ---
@@ -75,7 +77,7 @@ chmod +x Cachy-Kernel-Updater-1.0.2-x86_64.AppImage
 The `.deb` package defines all runtime dependencies in its control file. When installed via `apt`, all required libraries are resolved and installed automatically:
 
 ```bash
-sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.2_all.deb
+sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.3_all.deb
 ```
 
 ---
@@ -155,13 +157,13 @@ sudo ./sign-kernel.sh
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.2_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.3_all.deb`.
 
 ### Build the AppImage
 ```bash
 ./build_appimage.sh
 ```
-This generates `Cachy-Kernel-Updater-1.0.2-x86_64.AppImage`.
+This generates `Cachy-Kernel-Updater-1.0.3-x86_64.AppImage`.
 
 ---
 

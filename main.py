@@ -12,7 +12,7 @@ from kernel_manager import KernelManager
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Debian CachyOS Kernel Updater")
-        self.set_default_size(760, 560)
+        self.set_default_size(780, 580)
         self.set_decorated(True)
         self.set_resizable(True)
         
@@ -47,7 +47,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.set_icon_name("org.cachyos.debian.kernelupdater")
         self.window_title = Adw.WindowTitle(
             title="Debian CachyOS Kernel Updater",
-            subtitle="Installer, Updater & Rollback (v1.0.2)"
+            subtitle="Installer, Updater & Rollback (v1.0.3)"
         )
         self.header.set_title_widget(self.window_title)
         self.toolbar_view.add_top_bar(self.header)
@@ -89,14 +89,18 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.content_box.append(self.status_box)
 
         # Action Buttons Box
-        self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         self.button_box.set_halign(Gtk.Align.CENTER)
         self.content_box.append(self.button_box)
 
-        self.check_button = Gtk.Button(label="Check for Updates")
+        self.check_button = Gtk.Button(label="Check Updates")
         self.check_button.add_css_class("suggested-action")
         self.check_button.connect("clicked", self.on_check_updates_clicked)
         self.button_box.append(self.check_button)
+
+        self.deps_button = Gtk.Button(label="Install Dependencies")
+        self.deps_button.connect("clicked", self.on_install_deps_clicked)
+        self.button_box.append(self.deps_button)
 
         self.install_button = Gtk.Button(label="Download & Compile")
         self.install_button.connect("clicked", self.on_install_clicked)
@@ -147,6 +151,16 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         scrolled_window.add_css_class("card")
         self.content_box.append(scrolled_window)
 
+        # Clean build cache and verify saved config on startup
+        self.kernel_manager.cleanup_cache_on_startup(progress_callback=self.log)
+
+        # Check compiler build dependencies status on startup
+        missing_deps = self.kernel_manager.check_build_dependencies()
+        if missing_deps:
+            self.log(f"[!] Notice: Missing {len(missing_deps)} build package(s): {', '.join(missing_deps)}. Click 'Install Dependencies' to install.")
+        else:
+            self.log("[✓] Kernel compiler build dependencies are verified and installed.")
+
         # Automatically check for updates on startup
         self.on_check_updates_clicked(None)
 
@@ -189,6 +203,58 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
 
         self.check_button.set_sensitive(True)
         self.install_button.set_sensitive(True)
+        self.deps_button.set_sensitive(True)
+        return False
+
+    def on_install_deps_clicked(self, button):
+        missing = self.kernel_manager.check_build_dependencies()
+        if not missing:
+            self.log("\n=======================================================")
+            self.log("[✓] All required kernel compiler dependencies are already installed:")
+            for dep in self.kernel_manager.REQUIRED_BUILD_DEPS:
+                self.log(f"    • {dep} (installed)")
+            self.log("=======================================================\n")
+
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="Dependencies Installed",
+                body="All required kernel compiler dependencies are already installed on your system.\n\nWould you like to run apt-get to verify and update them anyway?"
+            )
+            dialog.add_response("cancel", "Keep Current")
+            dialog.add_response("reinstall", "Update / Reinstall")
+            dialog.set_response_appearance("reinstall", Adw.ResponseAppearance.SUGGESTED)
+
+            def on_dialog_response(dlg, response):
+                if response == "reinstall":
+                    self._start_deps_install()
+
+            dialog.connect("response", on_dialog_response)
+            dialog.present()
+        else:
+            self.log("\n=======================================================")
+            self.log(f"[*] Missing {len(missing)} compiler package(s): {', '.join(missing)}")
+            self.log("=======================================================\n")
+            self._start_deps_install()
+
+    def _start_deps_install(self):
+        self.deps_button.set_sensitive(False)
+        self.install_button.set_sensitive(False)
+        self.check_button.set_sensitive(False)
+
+        def deps_task():
+            success = self.kernel_manager.install_build_dependencies(progress_callback=self.log)
+            GLib.idle_add(self._on_deps_complete, success)
+
+        threading.Thread(target=deps_task, daemon=True).start()
+
+    def _on_deps_complete(self, success):
+        self.deps_button.set_sensitive(True)
+        self.check_button.set_sensitive(True)
+        self.install_button.set_sensitive(True)
+        if success:
+            self.log("[✓] Build dependencies setup complete.")
+        else:
+            self.log("[!] Dependency installation was cancelled or encountered an error.")
         return False
 
     def on_install_clicked(self, button):
@@ -197,6 +263,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.log("=======================================================\n")
         self.install_button.set_sensitive(False)
         self.check_button.set_sensitive(False)
+        self.deps_button.set_sensitive(False)
 
         def build_task():
             try:
@@ -212,6 +279,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
     def _on_build_complete(self, success):
         self.check_button.set_sensitive(True)
         self.install_button.set_sensitive(True)
+        self.deps_button.set_sensitive(True)
         if success:
             self.apply_button.set_sensitive(True)
             self.log("\n[✓] Build finished! Click 'Install (.deb)' to install to your system.")

@@ -12,6 +12,27 @@ class KernelManager:
         self.cachy_config_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/config"
         cache_base = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
         self.download_dir = os.path.join(cache_base, "cachy-kernel-build")
+        
+        config_base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+        self.config_dir = os.path.join(config_base, "cachy-kernel-updater")
+        self.saved_config_path = os.path.join(self.config_dir, "kernel.config")
+        os.makedirs(self.config_dir, exist_ok=True)
+
+        self.REQUIRED_BUILD_DEPS = [
+            'build-essential',
+            'libncurses-dev',
+            'bison',
+            'flex',
+            'libssl-dev',
+            'libelf-dev',
+            'bc',
+            'rsync',
+            'debhelper',
+            'pahole',
+            'kmod',
+            'cpio'
+        ]
+
         self.latest_version = None
         self.latest_tag = None
         self.download_url = None
@@ -95,7 +116,7 @@ class KernelManager:
             return True
         return False
 
-    def _run_cmd(self, cmd, cwd, progress_callback):
+    def _run_cmd(self, cmd, cwd=None, progress_callback=None):
         """Runs a command and yields output live to the callback."""
         if progress_callback:
             progress_callback(f"> {' '.join(cmd)}")
@@ -113,6 +134,115 @@ class KernelManager:
         rc = process.wait()
         if rc != 0:
             raise Exception(f"Command failed with return code {rc}: {' '.join(cmd)}")
+
+    def check_build_dependencies(self):
+        """Returns a list of missing kernel compiler build dependencies."""
+        missing = []
+        for pkg in self.REQUIRED_BUILD_DEPS:
+            try:
+                res = subprocess.run(
+                    ['dpkg-query', '-W', '-f=${Status}', pkg],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if 'install ok installed' not in res.stdout:
+                    missing.append(pkg)
+            except Exception:
+                missing.append(pkg)
+        return missing
+
+    def install_build_dependencies(self, progress_callback=None):
+        """Installs kernel build dependencies using pkexec apt-get."""
+        if progress_callback:
+            progress_callback("\n=======================================================")
+            progress_callback("[*] Requesting root authorization via pkexec to install build dependencies...")
+            progress_callback("=======================================================\n")
+            progress_callback(f"Packages to install: {' '.join(self.REQUIRED_BUILD_DEPS)}\n")
+
+        cmd = ['pkexec', 'apt-get', 'install', '-y'] + self.REQUIRED_BUILD_DEPS
+        try:
+            self._run_cmd(cmd, progress_callback=progress_callback)
+            if progress_callback:
+                progress_callback("\n[✓] Kernel compiler build dependencies installed successfully!\n")
+            return True
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"\n[!] Dependency installation failed: {e}\n")
+            return False
+
+    def cleanup_cache_on_startup(self, progress_callback=None):
+        """
+        Checks ~/.cache for the kernel build directory on application launch.
+        Preserves any generated .config to persistent storage before cleaning.
+        """
+        if not os.path.exists(self.download_dir):
+            if progress_callback:
+                progress_callback(f"[i] Cache check: {self.download_dir} is clean.")
+            return
+
+        if progress_callback:
+            progress_callback(f"[*] Checking cache folder: {self.download_dir}...")
+
+        # Search for any generated .config inside the download_dir tree to preserve it
+        found_config = None
+        for root, dirs, files in os.walk(self.download_dir):
+            if ".config" in files:
+                candidate = os.path.join(root, ".config")
+                if os.path.isfile(candidate) and os.path.getsize(candidate) > 1000:
+                    found_config = candidate
+                    break
+
+        if not found_config:
+            direct_cfg = os.path.join(self.download_dir, "config")
+            if os.path.isfile(direct_cfg) and os.path.getsize(direct_cfg) > 1000:
+                found_config = direct_cfg
+
+        # Save config if found and not yet saved or if found is newer
+        if found_config:
+            should_save = False
+            if not os.path.exists(self.saved_config_path):
+                should_save = True
+            elif os.path.getmtime(found_config) > os.path.getmtime(self.saved_config_path):
+                should_save = True
+
+            if should_save:
+                try:
+                    shutil.copy(found_config, self.saved_config_path)
+                    if progress_callback:
+                        progress_callback(f"[✓] Preserved generated kernel configuration to {self.saved_config_path}")
+                except Exception as e:
+                    if progress_callback:
+                        progress_callback(f"[!] Warning: could not backup config: {e}")
+
+        # Clean the cachy-kernel-build folder with robust permission handling
+        try:
+            import stat
+            for root, dirs, files in os.walk(self.download_dir, topdown=False):
+                for name in files:
+                    p = os.path.join(root, name)
+                    try:
+                        os.chmod(p, stat.S_IWUSR | stat.S_IRUSR)
+                        os.unlink(p)
+                    except Exception:
+                        pass
+                for name in dirs:
+                    p = os.path.join(root, name)
+                    try:
+                        os.chmod(p, stat.S_IWUSR | stat.S_IRUSR | stat.S_IXUSR)
+                        os.rmdir(p)
+                    except Exception:
+                        pass
+            try:
+                os.rmdir(self.download_dir)
+            except Exception:
+                shutil.rmtree(self.download_dir, ignore_errors=True)
+
+            if progress_callback:
+                progress_callback(f"[✓] Cleaned previous build artifacts from {self.download_dir}\n")
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"[!] Warning: could not clean {self.download_dir}: {e}\n")
 
     def download_kernel(self, progress_callback=None):
         """Downloads the official pre-patched CachyOS kernel source and configuration."""
@@ -177,10 +307,28 @@ class KernelManager:
         if progress_callback:
             progress_callback("Setting up kernel configuration for Debian...")
 
-        # Copy official CachyOS config to .config
-        config_src = os.path.join(self.download_dir, "config")
         config_dst = os.path.join(kernel_dir, ".config")
-        shutil.copy(config_src, config_dst)
+
+        # Recover saved config if available, otherwise use running CachyOS kernel or downloaded official config
+        if os.path.exists(self.saved_config_path) and os.path.getsize(self.saved_config_path) > 1000:
+            if progress_callback:
+                progress_callback(f"[✓] Recovering previously saved kernel configuration from {self.saved_config_path}...")
+            shutil.copy(self.saved_config_path, config_dst)
+        else:
+            current_kernel = self.get_current_kernel_version()
+            boot_cfg = f"/boot/config-{current_kernel}"
+            if os.path.isfile(boot_cfg) and 'cachy' in current_kernel:
+                if progress_callback:
+                    progress_callback(f"[✓] Recovering configuration from running kernel ({boot_cfg})...")
+                shutil.copy(boot_cfg, config_dst)
+            else:
+                if progress_callback:
+                    progress_callback("Applying official CachyOS base kernel configuration...")
+                config_src = os.path.join(self.download_dir, "config")
+                if os.path.exists(config_src):
+                    shutil.copy(config_src, config_dst)
+                else:
+                    urllib.request.urlretrieve(self.cachy_config_raw, config_dst)
 
         # Apply necessary tweaks for Debian environment
         # 1. Disable trusted and revocation keys which cause Debian builds to fail without local certificates
@@ -194,8 +342,17 @@ class KernelManager:
         self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT'], cwd=kernel_dir, progress_callback=None)
         self._run_cmd(['scripts/config', '--enable', 'CONFIG_DEBUG_INFO_NONE'], cwd=kernel_dir, progress_callback=None)
 
-        # 3. Update configuration
+        # 3. Update configuration for the new kernel version
         self._run_cmd(['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
+
+        # 4. Save the generated configuration to persistent storage for future updates
+        try:
+            shutil.copy(config_dst, self.saved_config_path)
+            if progress_callback:
+                progress_callback(f"[✓] Preserved updated kernel configuration in {self.saved_config_path}")
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"[!] Warning: could not save configuration: {e}")
 
         cores = str(os.cpu_count() or 4)
         if progress_callback:
