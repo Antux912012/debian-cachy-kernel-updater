@@ -36,63 +36,44 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 
 ---
 
-## Downloads (v1.0.5)
+## Installation
 
-Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.5):
+### Method 1: Official Debian APT Repository (Recommended)
 
-* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.5/cachy-kernel-updater_1.0.5_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
-* 🔐 **[Download Secure Boot Signing Script (`sign-kernel.sh`)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.5/sign-kernel.sh)** — Automated script to sign custom compiled kernels for UEFI Secure Boot
+Installing via our official APT repository enables automatic updates alongside your system packages (`sudo apt upgrade`):
+
+```bash
+# 1. Download and install the repository GPG signing key
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://antux912012.github.io/debian-cachy-kernel-updater/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/cachy-kernel-updater.gpg
+
+# 2. Add the repository to your APT sources
+echo "deb [signed-by=/etc/apt/keyrings/cachy-kernel-updater.gpg] https://antux912012.github.io/debian-cachy-kernel-updater stable main" | sudo tee /etc/apt/sources.list.d/cachy-kernel-updater.list
+
+# 3. Update package index and install
+sudo apt update
+sudo apt install cachy-kernel-updater
+```
+
+> [!TIP]
+> Compatible with **Debian 12 (Bookworm)**, **Debian 13 (Trixie)**, **Debian Sid (Unstable)**, and Debian-based distributions. You can also visit the [APT Repository Web Page](https://antux912012.github.io/debian-cachy-kernel-updater/).
 
 ---
 
-### Package Formats & System Libraries
+### Method 2: Direct `.deb` Package Download
 
-Depending on how you run the application, the required libraries vary:
+Download the pre-compiled `.deb` package from the [v1.0.5 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.5):
 
-#### 1. Running the AppImage (All Libraries Included)
-> [!NOTE]
-> **No external GUI or Python libraries are required.** All runtime dependencies—including **Python 3**, **GTK4**, **Libadwaita**, **PyGObject**, **Requests**, and the **CachyOS/Debian Icon Theme**—are fully bundled inside the `.AppImage` executable.
+* 📦 **[cachy-kernel-updater_1.0.5_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.5/cachy-kernel-updater_1.0.5_all.deb)**
 
-##### FUSE Requirement on Debian:
-To run any AppImage on Debian, FUSE2 runtime support is required:
-* **On Debian Stable (Bookworm):**
-  ```bash
-  sudo apt install -y libfuse2
-  ```
-* **On Debian Testing (Trixie) & Sid (Unstable):**
-  Due to the 64-bit `time_t` transition in Debian Testing/Sid, `libfuse2` has transitioned to `libfuse2t64`. You can install it via:
-  ```bash
-  sudo apt install -y libfuse2t64
-  ```
-  Or install the provided compatibility package:
-  ```bash
-  sudo dpkg -i libfuse2t64_2.9.9-9_amd64.deb
-  ```
-
-Then execute the AppImage:
+Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-chmod +x Cachy-Kernel-Updater-1.0.3-x86_64.AppImage
-./Cachy-Kernel-Updater-1.0.3-x86_64.AppImage
+sudo apt install -y ./cachy-kernel-updater_1.0.5_all.deb
 ```
 
 ---
 
-#### 2. Running the Native Debian Package (`.deb`)
-The `.deb` package defines all runtime dependencies in its control file. When installed via `apt`, all required libraries are resolved and installed automatically:
-
-```bash
-sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.5_all.deb
-```
-
----
-
-#### 3. Flatpak Support (Work in Progress 🚧)
-> [!IMPORTANT]
-> **We are currently working on an official Flatpak version as well.** The Flatpak package is in active development to provide an easy one-click install for users on Flatpak-centric setups and Flathub.
-
----
-
-#### 4. Running Directly from Source (Python)
+### Method 3: Running Directly from Source (Python)
 If running from source code (`python3 main.py`), you must ensure the following Debian packages and GTK4 libraries are installed:
 
 | Library Package | Purpose |
