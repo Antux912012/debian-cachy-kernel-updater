@@ -1,5 +1,6 @@
 import sys
 import os
+import subprocess
 import threading
 import gi
 
@@ -12,7 +13,7 @@ from kernel_manager import KernelManager
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Debian CachyOS Kernel Updater")
-        self.set_default_size(780, 580)
+        self.set_default_size(800, 640)
         self.set_decorated(True)
         self.set_resizable(True)
         
@@ -43,7 +44,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.set_icon_name("org.cachyos.debian.kernelupdater")
         self.window_title = Adw.WindowTitle(
             title="Debian CachyOS Kernel Updater",
-            subtitle="Installer, Updater & Rollback (v1.0.4)"
+            subtitle="Installer, Updater & Rollback (v1.0.5)"
         )
         self.header.set_title_widget(self.window_title)
 
@@ -93,6 +94,36 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
 
         self.status_box.append(inner_status_box)
         self.content_box.append(self.status_box)
+
+        # Build Options Group (Container & Output Location)
+        self.options_group = Adw.PreferencesGroup()
+        self.options_group.set_title("Build & Output Settings")
+
+        self.container_row = Adw.SwitchRow()
+        self.container_row.set_title("Build inside Container (Podman/Docker)")
+
+        engine = self.kernel_manager.get_container_engine()
+        if engine:
+            self.container_row.set_subtitle(f"Detected engine: {engine.capitalize()} (Debian Bookworm isolated environment)")
+            self.container_row.set_active(True)
+        else:
+            self.container_row.set_subtitle("Neither Podman nor Docker detected; host build will be used")
+            self.container_row.set_active(False)
+            self.container_row.set_sensitive(False)
+
+        self.options_group.add(self.container_row)
+
+        self.output_row = Adw.ActionRow()
+        self.output_row.set_title("Output Package Folder")
+        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir())
+
+        self.open_output_button = Gtk.Button(label="Open Folder")
+        self.open_output_button.set_valign(Gtk.Align.CENTER)
+        self.open_output_button.connect("clicked", self.on_open_output_clicked)
+        self.output_row.add_suffix(self.open_output_button)
+
+        self.options_group.add(self.output_row)
+        self.content_box.append(self.options_group)
 
         # Action Buttons Box
         self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -199,6 +230,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
     def _update_version_ui(self, latest, is_matching):
         self.latest_label.set_label(f"Latest CachyOS Kernel: {latest}")
         self.log(f"[✓] Official latest CachyOS kernel version: {latest}")
+        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir())
 
         if is_matching:
             self.match_status_label.set_label("✅ You are currently running the latest CachyOS kernel.")
@@ -211,6 +243,21 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.install_button.set_sensitive(True)
         self.deps_button.set_sensitive(True)
         return False
+
+    def on_open_output_clicked(self, button):
+        out_dir = self.kernel_manager.last_output_dir or self.kernel_manager.get_output_kernel_dir()
+        if not os.path.exists(out_dir):
+            out_dir = self.kernel_manager.output_base_dir
+        if not os.path.exists(out_dir):
+            try:
+                os.makedirs(out_dir, exist_ok=True)
+            except Exception:
+                pass
+        self.log(f"[*] Opening output folder: {out_dir}")
+        try:
+            subprocess.Popen(['xdg-open', out_dir])
+        except Exception as e:
+            self.log(f"[!] Could not open folder: {e}")
 
     def on_install_deps_clicked(self, button):
         missing = self.kernel_manager.check_build_dependencies()
@@ -264,8 +311,45 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         return False
 
     def on_install_clicked(self, button):
+        output_dir = self.kernel_manager.get_output_kernel_dir()
+        use_container = self.container_row.get_active()
+        engine = self.kernel_manager.get_container_engine() if use_container else "Host"
+        mode_str = f"Container ({engine})" if use_container else "Host System"
+
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="Grant Access & Start Build",
+            body=(
+                f"Kernel compilation mode: {mode_str}\n\n"
+                f"Please grant permission to generate and store the output kernel in:\n"
+                f"📂 {output_dir}\n\n"
+                f"All generated Debian (.deb) packages, kernel configuration, and installation helper scripts will be saved in this location."
+            )
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("proceed", "Grant Access & Proceed")
+        dialog.set_response_appearance("proceed", Adw.ResponseAppearance.SUGGESTED)
+
+        def on_response(dlg, response):
+            if response == "proceed":
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
+                    self.log(f"[✓] Permission granted. Output directory verified:\n    {output_dir}")
+                except Exception as e:
+                    self.log(f"[!] Warning creating output directory: {e}")
+                self._start_kernel_build(use_container=use_container)
+            else:
+                self.log("[i] Build cancelled by user (access not granted).")
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _start_kernel_build(self, use_container):
         self.log("\n=======================================================")
         self.log("[*] Starting CachyOS kernel download and build task...")
+        mode_desc = f"Container ({self.kernel_manager.get_container_engine()})" if use_container else "Host System"
+        self.log(f"    Build Mode: {mode_desc}")
+        self.log(f"    Output Folder: {self.kernel_manager.get_output_kernel_dir()}")
         self.log("=======================================================\n")
         self.install_button.set_sensitive(False)
         self.check_button.set_sensitive(False)
@@ -274,7 +358,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         def build_task():
             try:
                 kernel_dir = self.kernel_manager.download_kernel(progress_callback=self.log)
-                self.kernel_manager.compile_kernel(kernel_dir, progress_callback=self.log)
+                self.kernel_manager.compile_kernel(kernel_dir, progress_callback=self.log, use_container=use_container)
                 GLib.idle_add(self._on_build_complete, True)
             except Exception as e:
                 self.log(f"\n[!] Build task failed: {str(e)}")
@@ -288,7 +372,9 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.deps_button.set_sensitive(True)
         if success:
             self.apply_button.set_sensitive(True)
-            self.log("\n[✓] Build finished! Click 'Install (.deb)' to install to your system.")
+            out_dir = self.kernel_manager.last_output_dir or self.kernel_manager.get_output_kernel_dir()
+            self.log(f"\n[✓] Build finished! Artifacts saved in:\n    {out_dir}")
+            self.log("[✓] Click 'Install (.deb)' to install immediately or 'Open Folder' to view packages.")
         return False
 
     def on_apply_clicked(self, button):

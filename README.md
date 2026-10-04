@@ -15,29 +15,33 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 
 ## Features
 
-1. **Official CachyOS Version Checking:** Queries the official [CachyOS GitHub repository](https://github.com/CachyOS/linux/releases) and [PKGBUILD](https://github.com/CachyOS/linux-cachyos) to detect the latest stable CachyOS kernel release.
+1. **Official CachyOS Version Checking:** Queries the official [CachyOS GitHub repository](https://github.com/CachyOS/linux/releases) and [PKGBUILD](https://github.com/CachyOS/linux-cachyos) to detect the latest stable CachyOS kernel release (e.g. 7.2.9).
 2. **System Comparison:** Automatically verifies whether your currently running kernel matches the latest CachyOS release.
 3. **Automated Source & Config Download:** Downloads the pre-patched official CachyOS kernel tree and the official CachyOS `.config`.
-4. **Optimized Compilation (`make bindeb-pkg`):**
+4. **Containerized Compilation (Podman / Docker):**
+   * Optionally compile inside an isolated `debian:bookworm-slim` container environment using **Podman** or **Docker**.
+   * Provides 100% reproducible builds and generic compatibility across Debian Bookworm, Trixie, Sid, and derivatives without polluting your host system.
+5. **Organized Output in `~/kernel-build-deb/`:**
+   * Prompts the user to grant permission to create the output folder in their home directory.
+   * Collects all generated `.deb` packages (`linux-image`, `linux-headers`), `kernel.config`, and a self-contained `install.sh` helper into `/home/$USER/kernel-build-deb/Linux-kernel-CachyOS-(version)-debian/`.
+6. **Optimized Compilation (`make bindeb-pkg`):**
    * Configures the kernel with CachyOS scheduler and performance optimizations.
    * Disables Debian trusted keys hurdles and excessive debug symbols to ensure fast, failure-free builds.
    * Compiles the kernel into native `.deb` packages using all available CPU threads.
-5. **Polkit Privilege Escalation:** Safely invokes `pkexec` for native password prompts when installing or purging packages and updating GRUB.
-6. **Kernel Rollback:** Lists installed `linux-image-*` packages in a safety-first UI dialog, allowing you to purge previous kernels and automatically restore older kernel entries in GRUB.
-7. **Cache Cleanup & Persistent Config Recovery:** Checks and cleans `~/.cache/cachy-kernel-build` every time the app opens, preventing disk bloat while automatically saving and recovering your generated kernel `.config` across kernel updates.
-8. **One-Click Build Dependencies Installer:** Built-in "Install Dependencies" button to verify and install all required kernel compiler tools (`build-essential`, `libncurses-dev`, `bison`, `flex`, `libssl-dev`, `libelf-dev`, `bc`, `rsync`, `debhelper`, `pahole`, `kmod`, `cpio`) directly from the GUI.
-9. **Modern Native UI:** Built with **GTK4** and **Libadwaita**, providing dark mode support, titlebar controls, and live terminal logging.
+7. **Polkit Privilege Escalation:** Safely invokes `pkexec` for native password prompts when installing or purging packages and updating GRUB.
+8. **Kernel Rollback:** Lists installed `linux-image-*` packages in a safety-first UI dialog, allowing you to purge previous kernels and automatically restore older kernel entries in GRUB.
+9. **Cache Cleanup & Persistent Config Recovery:** Checks and cleans `~/.cache/cachy-kernel-build` every time the app opens, preventing disk bloat while automatically saving and recovering your generated kernel `.config` across kernel updates.
+10. **One-Click Build Dependencies Installer:** Built-in "Install Dependencies" button to verify and install all required kernel compiler tools directly from the GUI.
+11. **Modern Native UI:** Built with **GTK4** and **Libadwaita**, providing dark mode support, titlebar controls, and live terminal logging.
 
 ---
 
-## Downloads (v1.0.3)
+## Downloads (v1.0.5)
 
-Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.3):
+Pre-compiled packages are available on the [Latest Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.5):
 
-* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/cachy-kernel-updater_1.0.3_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
-* 🚀 **[Download Standalone AppImage](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/Cachy-Kernel-Updater-1.0.3-x86_64.AppImage)** — Pre-bundled standalone executable (all GTK4/Adwaita libraries and logo icons included)
-* 🔧 **[Download libfuse2t64 (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/libfuse2t64_2.9.9-9_amd64.deb)** — Crucial compatibility package for running AppImages on **Debian Testing (Trixie)** & **Debian Sid**
-* 🔐 **[Download Secure Boot Signing Script (`sign-kernel.sh`)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.3/sign-kernel.sh)** — Automated script to sign custom compiled kernels for UEFI Secure Boot
+* 📦 **[Download Debian Package (.deb)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.5/cachy-kernel-updater_1.0.5_all.deb)** — Recommended for Debian systems (auto-resolves dependencies via `apt`)
+* 🔐 **[Download Secure Boot Signing Script (`sign-kernel.sh`)](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.5/sign-kernel.sh)** — Automated script to sign custom compiled kernels for UEFI Secure Boot
 
 ---
 
@@ -77,7 +81,7 @@ chmod +x Cachy-Kernel-Updater-1.0.3-x86_64.AppImage
 The `.deb` package defines all runtime dependencies in its control file. When installed via `apt`, all required libraries are resolved and installed automatically:
 
 ```bash
-sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.3_all.deb
+sudo apt install -y ./deb_dist/cachy-kernel-updater_1.0.5_all.deb
 ```
 
 ---
@@ -157,7 +161,7 @@ sudo ./sign-kernel.sh
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.3_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.5_all.deb`.
 
 ### Build the AppImage
 ```bash

@@ -37,6 +37,10 @@ class KernelManager:
         self.latest_tag = None
         self.download_url = None
 
+        self.output_base_dir = os.path.expanduser("~/kernel-build-deb")
+        self.last_output_dir = None
+        self.container_image_tag = "cachyos-kernel-builder:debian"
+
     def get_current_kernel_version(self):
         """Returns the currently running kernel version."""
         try:
@@ -170,6 +174,92 @@ class KernelManager:
             if progress_callback:
                 progress_callback(f"\n[!] Dependency installation failed: {e}\n")
             return False
+
+    def get_output_kernel_dir(self):
+        """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-debian."""
+        ver = self.latest_version or "latest"
+        folder_name = f"Linux-kernel-CachyOS-{ver}-debian"
+        return os.path.join(self.output_base_dir, folder_name)
+
+    def get_container_engine(self):
+        """Returns 'podman' or 'docker' if available, otherwise None."""
+        if shutil.which("podman"):
+            return "podman"
+        if shutil.which("docker"):
+            return "docker"
+        return None
+
+    def has_container_image(self):
+        """Checks if the Debian-based builder container image is already available."""
+        engine = self.get_container_engine()
+        if not engine:
+            return False
+        try:
+            if engine == "podman":
+                res = subprocess.run([engine, "image", "exists", self.container_image_tag],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return res.returncode == 0
+            else:
+                res = subprocess.run([engine, "inspect", "--type=image", self.container_image_tag],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return res.returncode == 0
+        except Exception:
+            return False
+
+    def ensure_container_image(self, progress_callback=None):
+        """Ensures the Debian Bookworm builder image is built and ready."""
+        engine = self.get_container_engine()
+        if not engine:
+            raise Exception("Neither podman nor docker was found. Please install podman or docker.")
+
+        if self.has_container_image():
+            if progress_callback:
+                progress_callback(f"[✓] Container image verified: {self.container_image_tag} ({engine})")
+            return True
+
+        if progress_callback:
+            progress_callback(f"\n[*] Preparing {self.container_image_tag} using {engine}...")
+            progress_callback("Base: Debian Bookworm (ensures maximum generic compatibility and zero host dependencies)")
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        containerfile_path = os.path.join(base_dir, "Containerfile")
+        if not os.path.exists(containerfile_path):
+            containerfile_path = os.path.join(self.download_dir, "Containerfile")
+            os.makedirs(self.download_dir, exist_ok=True)
+            with open(containerfile_path, "w") as cf:
+                cf.write("""FROM docker.io/library/debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    build-essential \\
+    bc \\
+    bison \\
+    flex \\
+    libelf-dev \\
+    libssl-dev \\
+    libncurses-dev \\
+    rsync \\
+    kmod \\
+    cpio \\
+    pahole \\
+    zstd \\
+    tar \\
+    xz-utils \\
+    dpkg-dev \\
+    debhelper \\
+    python3 \\
+    gcc \\
+    make \\
+    git \\
+    ca-certificates \\
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+""")
+
+        build_cmd = [engine, "build", "-t", self.container_image_tag, "-f", containerfile_path, os.path.dirname(containerfile_path)]
+        self._run_cmd(build_cmd, progress_callback=progress_callback)
+        if progress_callback:
+            progress_callback(f"[✓] Successfully built container image: {self.container_image_tag}\n")
+        return True
 
     def cleanup_cache_on_startup(self, progress_callback=None):
         """
@@ -379,7 +469,7 @@ class KernelManager:
 
         return extracted_dir
 
-    def compile_kernel(self, kernel_dir, progress_callback=None):
+    def compile_kernel(self, kernel_dir, progress_callback=None, use_container=False):
         """Prepares configuration and compiles the kernel into Debian packages."""
         if progress_callback:
             progress_callback("Setting up kernel configuration for Debian...")
@@ -423,10 +513,39 @@ class KernelManager:
         self._run_cmd(['scripts/config', '--disable', 'CONFIG_INTEL_TDX_HOST'], cwd=kernel_dir, progress_callback=None)
         self._run_cmd(['scripts/config', '--disable', 'CONFIG_KVM_INTEL_TDX'], cwd=kernel_dir, progress_callback=None)
 
-        # 4. Update configuration for the new kernel version
-        self._run_cmd(['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
+        # 4. Set Debian localversion so generated kernel has clean branding
+        self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'], cwd=kernel_dir, progress_callback=None)
 
-        # 5. Save the generated configuration to persistent storage for future updates
+        # Prepare container runner prefix if container build is selected
+        container_prefix = []
+        if use_container:
+            engine = self.get_container_engine()
+            if not engine:
+                raise Exception("Container build requested but neither podman nor docker is installed.")
+            self.ensure_container_image(progress_callback=progress_callback)
+            
+            rel_kernel = os.path.relpath(kernel_dir, self.download_dir)
+            container_prefix = [engine, "run", "--rm"]
+            if engine == "podman":
+                container_prefix += ["--userns=keep-id"]
+            else:
+                container_prefix += ["-u", f"{os.getuid()}:{os.getgid()}"]
+            
+            container_prefix += [
+                "-v", f"{self.download_dir}:/workspace:z",
+                "-w", f"/workspace/{rel_kernel}",
+                "-e", "KBUILD_BUILD_USER=cachyos",
+                "-e", "KBUILD_BUILD_HOST=debian",
+                self.container_image_tag
+            ]
+
+        # 5. Update configuration for the new kernel version
+        if use_container:
+            self._run_cmd(container_prefix + ['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
+        else:
+            self._run_cmd(['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
+
+        # 6. Save the generated configuration to persistent storage for future updates
         try:
             os.makedirs(os.path.dirname(self.saved_config_path), exist_ok=True)
             shutil.copy(config_dst, self.saved_config_path)
@@ -438,12 +557,16 @@ class KernelManager:
 
         cores = str(os.cpu_count() or 4)
         if progress_callback:
-            progress_callback(f"Starting kernel compilation using {cores} CPU threads...")
+            mode_desc = f"inside Debian container ({self.get_container_engine()})" if use_container else "on host system"
+            progress_callback(f"Starting kernel compilation {mode_desc} using {cores} CPU threads...")
             progress_callback("Running 'make bindeb-pkg' (Debian package build)...")
 
         try:
             # Compile and generate .deb packages
-            self._run_cmd(['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
+            if use_container:
+                self._run_cmd(container_prefix + ['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
+            else:
+                self._run_cmd(['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
         finally:
             # Clean up active build lockfile
             lock_file = os.path.join(self.download_dir, ".building")
@@ -453,36 +576,138 @@ class KernelManager:
                 except Exception:
                     pass
 
+        # 7. Collect all generated deb packages and save to ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-debian
+        output_dir = self.get_output_kernel_dir()
+        os.makedirs(output_dir, exist_ok=True)
+        self.last_output_dir = output_dir
+
         if progress_callback:
-            progress_callback("Compilation completed successfully! Debian packages (.deb) are ready.")
+            progress_callback(f"\n[*] Collecting generated Debian packages into:\n    {output_dir}")
+
+        import glob
+        patterns = ["linux-image-*.deb", "linux-headers-*.deb", "linux-libc-dev-*.deb", "*.changes", "*.buildinfo"]
+        found_files = []
+        for pat in patterns:
+            found_files.extend(glob.glob(os.path.join(self.download_dir, pat)))
+        for pat in patterns:
+            found_files.extend(glob.glob(os.path.join(kernel_dir, pat)))
+
+        copied_count = 0
+        for fpath in set(found_files):
+            fname = os.path.basename(fpath)
+            dst_path = os.path.join(output_dir, fname)
+            try:
+                shutil.copy2(fpath, dst_path)
+                copied_count += 1
+                if progress_callback:
+                    progress_callback(f"    • Copied {fname}")
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"    [!] Warning: could not copy {fname}: {e}")
+
+        # Also preserve .config in the output directory
+        if os.path.exists(config_dst):
+            try:
+                shutil.copy2(config_dst, os.path.join(output_dir, "kernel.config"))
+                if progress_callback:
+                    progress_callback("    • Copied kernel.config")
+            except Exception:
+                pass
+
+        # Generate standalone install.sh script in the output directory
+        install_script_path = os.path.join(output_dir, "install.sh")
+        try:
+            ver = self.latest_version or "latest"
+            with open(install_script_path, "w") as sf:
+                sf.write(f"""#!/usr/bin/env bash
+# CachyOS Kernel Debian Package Installer
+# Kernel: Linux-kernel-CachyOS-{ver}-debian
+set -e
+
+DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" >/dev/null 2>&1 && pwd)"
+echo "=== Installing Linux-kernel-CachyOS-{ver}-debian ==="
+echo "Package directory: $DIR"
+
+DEBS=()
+for f in "$DIR"/linux-image-*.deb "$DIR"/linux-headers-*.deb; do
+    if [ -f "$f" ] && [[ "$f" != *"-dbg"* ]]; then
+        DEBS+=("$f")
+    fi
+done
+
+if [ ${{#DEBS[@]}} -eq 0 ]; then
+    echo "Error: No suitable kernel .deb packages found in $DIR"
+    exit 1
+fi
+
+echo "Installing packages: ${{DEBS[@]}}"
+if command -v pkexec >/dev/null 2>&1; then
+    pkexec dpkg -i "${{DEBS[@]}}"
+    pkexec update-grub
+elif [ "$(id -u)" -eq 0 ]; then
+    dpkg -i "${{DEBS[@]}}"
+    update-grub
+else
+    sudo dpkg -i "${{DEBS[@]}}"
+    sudo update-grub
+fi
+
+echo "=========================================================="
+echo "Installation complete! Please reboot to boot the new kernel."
+echo "=========================================================="
+""")
+            os.chmod(install_script_path, 0o755)
+            if progress_callback:
+                progress_callback("    • Generated install.sh helper script")
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"    [!] Warning: could not create install.sh: {e}")
+
+        if progress_callback:
+            progress_callback(f"\n[✓] Compilation completed successfully! Saved {copied_count} artifact(s) to:\n    {output_dir}")
 
     def install_kernel(self, progress_callback=None):
         """Installs the compiled .deb packages using pkexec."""
         import glob
         
-        deb_files = glob.glob(os.path.join(self.download_dir, "linux-image-*.deb"))
-        deb_files += glob.glob(os.path.join(self.download_dir, "linux-headers-*.deb"))
-        
-        # Exclude debug symbols debs if any were generated
-        deb_files = [f for f in deb_files if '-dbg' not in f]
+        search_dirs = []
+        if self.last_output_dir and os.path.isdir(self.last_output_dir):
+            search_dirs.append(self.last_output_dir)
+        output_dir = self.get_output_kernel_dir()
+        if os.path.isdir(output_dir) and output_dir not in search_dirs:
+            search_dirs.append(output_dir)
+        if self.download_dir not in search_dirs:
+            search_dirs.append(self.download_dir)
+
+        deb_files = []
+        source_dir = None
+        for sdir in search_dirs:
+            candidates = glob.glob(os.path.join(sdir, "linux-image-*.deb"))
+            candidates += glob.glob(os.path.join(sdir, "linux-headers-*.deb"))
+            candidates = [f for f in candidates if '-dbg' not in f]
+            if candidates:
+                deb_files = candidates
+                source_dir = sdir
+                break
 
         if not deb_files:
             if progress_callback:
-                progress_callback("Error: No linux-image or linux-headers .deb files found in build directory.")
+                progress_callback("Error: No linux-image or linux-headers .deb files found in output or build directories.")
             return False
 
         if progress_callback:
+            progress_callback(f"Installing packages from: {source_dir}")
             progress_callback(f"Found packages: {[os.path.basename(f) for f in deb_files]}")
             progress_callback("Requesting root permissions via pkexec to install packages...")
 
         cmd = ['pkexec', 'dpkg', '-i'] + deb_files
         try:
-            self._run_cmd(cmd, cwd=self.download_dir, progress_callback=progress_callback)
+            self._run_cmd(cmd, cwd=source_dir, progress_callback=progress_callback)
             if progress_callback:
                 progress_callback("Installation successful! Updating GRUB...")
             # Ensure grub is updated
             try:
-                self._run_cmd(['pkexec', 'update-grub'], cwd=self.download_dir, progress_callback=progress_callback)
+                self._run_cmd(['pkexec', 'update-grub'], cwd=source_dir, progress_callback=progress_callback)
             except Exception:
                 pass
             return True
