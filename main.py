@@ -35,10 +35,6 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
 
         self.kernel_manager = KernelManager()
 
-        # Main Layout using Adw.ToolbarView (standard Libadwaita titlebar container)
-        self.toolbar_view = Adw.ToolbarView()
-        self.set_content(self.toolbar_view)
-
         # Header Bar with explicit title buttons
         self.header = Adw.HeaderBar()
         self.header.set_show_start_title_buttons(True)
@@ -47,10 +43,9 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.set_icon_name("org.cachyos.debian.kernelupdater")
         self.window_title = Adw.WindowTitle(
             title="Debian CachyOS Kernel Updater",
-            subtitle="Installer, Updater & Rollback (v1.0.3)"
+            subtitle="Installer, Updater & Rollback (v1.0.4)"
         )
         self.header.set_title_widget(self.window_title)
-        self.toolbar_view.add_top_bar(self.header)
 
         # Content Box
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -58,7 +53,18 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.content_box.set_margin_bottom(16)
         self.content_box.set_margin_start(20)
         self.content_box.set_margin_end(20)
-        self.toolbar_view.set_content(self.content_box)
+
+        # Main Layout using Adw.ToolbarView if available, fallback to Gtk.Box for older Libadwaita
+        if hasattr(Adw, "ToolbarView"):
+            self.toolbar_view = Adw.ToolbarView()
+            self.set_content(self.toolbar_view)
+            self.toolbar_view.add_top_bar(self.header)
+            self.toolbar_view.set_content(self.content_box)
+        else:
+            main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            main_box.append(self.header)
+            main_box.append(self.content_box)
+            self.set_content(main_box)
 
         # Status Cards / Banner Box
         self.status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)

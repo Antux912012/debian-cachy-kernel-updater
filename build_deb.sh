@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
 PKG_NAME="cachy-kernel-updater"
-PKG_VER="1.0.3"
+PKG_VER="1.0.4"
 DEB_DIR="deb_dist/${PKG_NAME}_${PKG_VER}_all"
 
 echo "=== Cleaning previous deb staging directory ==="

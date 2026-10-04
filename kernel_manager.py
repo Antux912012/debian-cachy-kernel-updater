@@ -176,10 +176,39 @@ class KernelManager:
         Checks ~/.cache for the kernel build directory on application launch.
         Preserves any generated .config to persistent storage before cleaning.
         """
+        # First ensure persistent storage has an initial config from running CachyOS kernel if missing
+        if not os.path.exists(self.saved_config_path):
+            current_kernel = self.get_current_kernel_version()
+            boot_cfg = f"/boot/config-{current_kernel}"
+            if os.path.isfile(boot_cfg) and 'cachy' in current_kernel:
+                try:
+                    os.makedirs(os.path.dirname(self.saved_config_path), exist_ok=True)
+                    shutil.copy(boot_cfg, self.saved_config_path)
+                    if progress_callback:
+                        progress_callback(f"[✓] Initialized configuration from running CachyOS kernel ({boot_cfg})")
+                except Exception as e:
+                    if progress_callback:
+                        progress_callback(f"[!] Warning: could not seed initial config from {boot_cfg}: {e}")
+
         if not os.path.exists(self.download_dir):
             if progress_callback:
                 progress_callback(f"[i] Cache check: {self.download_dir} is clean.")
             return
+
+        # Do not clean if a build is actively running (lockfile check)
+        lock_file = os.path.join(self.download_dir, ".building")
+        if os.path.exists(lock_file):
+            try:
+                with open(lock_file, "r") as lf:
+                    pid = int(lf.read().strip())
+                # Check if process is still running
+                os.kill(pid, 0)
+                if progress_callback:
+                    progress_callback(f"[i] Build process (PID {pid}) is currently running in cache; skipping cleanup.")
+                return
+            except (ProcessLookupError, ValueError, OSError):
+                # Stale lockfile, proceed with cleanup
+                pass
 
         if progress_callback:
             progress_callback(f"[*] Checking cache folder: {self.download_dir}...")
@@ -193,11 +222,6 @@ class KernelManager:
                     found_config = candidate
                     break
 
-        if not found_config:
-            direct_cfg = os.path.join(self.download_dir, "config")
-            if os.path.isfile(direct_cfg) and os.path.getsize(direct_cfg) > 1000:
-                found_config = direct_cfg
-
         # Save config if found and not yet saved or if found is newer
         if found_config:
             should_save = False
@@ -208,6 +232,7 @@ class KernelManager:
 
             if should_save:
                 try:
+                    os.makedirs(os.path.dirname(self.saved_config_path), exist_ok=True)
                     shutil.copy(found_config, self.saved_config_path)
                     if progress_callback:
                         progress_callback(f"[✓] Preserved generated kernel configuration to {self.saved_config_path}")
@@ -253,15 +278,43 @@ class KernelManager:
             raise Exception("Unable to find download URL for latest CachyOS kernel.")
 
         os.makedirs(self.download_dir, exist_ok=True)
+
+        # Write active build lockfile
+        lock_file = os.path.join(self.download_dir, ".building")
+        try:
+            with open(lock_file, "w") as lf:
+                lf.write(str(os.getpid()))
+        except Exception:
+            pass
+
         archive_name = f"{self.latest_tag}.tar.gz"
         archive_path = os.path.join(self.download_dir, archive_name)
+        part_path = os.path.join(self.download_dir, f"{archive_name}.part")
 
         if progress_callback:
             progress_callback(f"Target: CachyOS Kernel {self.latest_version}")
-            progress_callback(f"Downloading from {self.download_url}...")
 
-        # Download tarball with progress indication
-        if not os.path.exists(archive_path) or os.path.getsize(archive_path) < 1000000:
+        # Tarball integrity validator
+        def is_tarball_valid(path):
+            if not os.path.isfile(path) or os.path.getsize(path) < 10000000:
+                return False
+            try:
+                res = subprocess.run(['tar', '-tzf', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return res.returncode == 0
+            except Exception:
+                return False
+
+        # Download tarball with progress indication and integrity check
+        if not is_tarball_valid(archive_path):
+            if os.path.exists(archive_path):
+                try:
+                    os.unlink(archive_path)
+                except Exception:
+                    pass
+
+            if progress_callback:
+                progress_callback(f"Downloading from {self.download_url}...")
+
             def report_hook(block_num, block_size, total_size):
                 if total_size > 0 and block_num % 1000 == 0:
                     downloaded = block_num * block_size
@@ -271,21 +324,45 @@ class KernelManager:
                     if progress_callback:
                         progress_callback(f"Downloading: {percent}% ({mb_down:.1f} MB / {mb_total:.1f} MB)")
 
-            urllib.request.urlretrieve(self.download_url, archive_path, reporthook=report_hook)
+            urllib.request.urlretrieve(self.download_url, part_path, reporthook=report_hook)
 
-        if progress_callback:
-            progress_callback(f"Extracting {archive_name}...")
+            if not is_tarball_valid(part_path):
+                raise Exception("Downloaded kernel archive is incomplete or corrupted. Please check network connection.")
 
-        # Extract kernel source
-        self._run_cmd(['tar', '-xf', archive_path], cwd=self.download_dir, progress_callback=progress_callback)
-
-        # Download official CachyOS config
-        if progress_callback:
-            progress_callback("Fetching official CachyOS kernel config...")
-        config_path = os.path.join(self.download_dir, "config")
-        urllib.request.urlretrieve(self.cachy_config_raw, config_path)
+            os.replace(part_path, archive_path)
+        else:
+            if progress_callback:
+                progress_callback(f"[✓] Verified existing archive: {archive_name}")
 
         extracted_dir = os.path.join(self.download_dir, self.latest_tag)
+
+        # Validate extracted directory integrity
+        def is_extracted_valid(path):
+            if not os.path.isdir(path):
+                return False
+            makefile = os.path.join(path, "Makefile")
+            compiler_h = os.path.join(path, "include/linux/compiler-version.h")
+            return os.path.isfile(makefile) and os.path.isfile(compiler_h)
+
+        if not is_extracted_valid(extracted_dir):
+            if os.path.exists(extracted_dir):
+                shutil.rmtree(extracted_dir, ignore_errors=True)
+
+            if progress_callback:
+                progress_callback(f"Extracting {archive_name}...")
+
+            self._run_cmd(['tar', '-xf', archive_path], cwd=self.download_dir, progress_callback=progress_callback)
+
+        # Download official CachyOS config if needed
+        config_path = os.path.join(self.download_dir, "config")
+        if not os.path.exists(config_path) or os.path.getsize(config_path) < 1000:
+            if progress_callback:
+                progress_callback("Fetching official CachyOS kernel config...")
+            try:
+                urllib.request.urlretrieve(self.cachy_config_raw, config_path)
+            except Exception:
+                pass
+
         if not os.path.exists(extracted_dir):
             # Fallback search if folder name differs
             candidates = [
@@ -298,7 +375,7 @@ class KernelManager:
                 raise Exception(f"Extracted directory not found in {self.download_dir}")
 
         if progress_callback:
-            progress_callback(f"Kernel source ready in {extracted_dir}")
+            progress_callback(f"[✓] Kernel source verified and ready in {extracted_dir}")
 
         return extracted_dir
 
@@ -342,11 +419,16 @@ class KernelManager:
         self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT'], cwd=kernel_dir, progress_callback=None)
         self._run_cmd(['scripts/config', '--enable', 'CONFIG_DEBUG_INFO_NONE'], cwd=kernel_dir, progress_callback=None)
 
-        # 3. Update configuration for the new kernel version
+        # 3. Disable enterprise server-only features that can fail on desktop/laptop toolchains
+        self._run_cmd(['scripts/config', '--disable', 'CONFIG_INTEL_TDX_HOST'], cwd=kernel_dir, progress_callback=None)
+        self._run_cmd(['scripts/config', '--disable', 'CONFIG_KVM_INTEL_TDX'], cwd=kernel_dir, progress_callback=None)
+
+        # 4. Update configuration for the new kernel version
         self._run_cmd(['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
 
-        # 4. Save the generated configuration to persistent storage for future updates
+        # 5. Save the generated configuration to persistent storage for future updates
         try:
+            os.makedirs(os.path.dirname(self.saved_config_path), exist_ok=True)
             shutil.copy(config_dst, self.saved_config_path)
             if progress_callback:
                 progress_callback(f"[✓] Preserved updated kernel configuration in {self.saved_config_path}")
@@ -359,8 +441,17 @@ class KernelManager:
             progress_callback(f"Starting kernel compilation using {cores} CPU threads...")
             progress_callback("Running 'make bindeb-pkg' (Debian package build)...")
 
-        # Compile and generate .deb packages
-        self._run_cmd(['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
+        try:
+            # Compile and generate .deb packages
+            self._run_cmd(['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
+        finally:
+            # Clean up active build lockfile
+            lock_file = os.path.join(self.download_dir, ".building")
+            if os.path.exists(lock_file):
+                try:
+                    os.unlink(lock_file)
+                except Exception:
+                    pass
 
         if progress_callback:
             progress_callback("Compilation completed successfully! Debian packages (.deb) are ready.")
