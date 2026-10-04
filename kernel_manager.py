@@ -140,8 +140,8 @@ class KernelManager:
         if rc != 0:
             raise Exception(f"Command failed with return code {rc}: {' '.join(cmd)}")
 
-    def check_build_dependencies(self):
-        """Returns a list of missing kernel compiler build dependencies."""
+    def check_build_dependencies(self, use_container=False):
+        """Returns a list of missing build dependencies. Checks container engine and image only if use_container is True."""
         missing = []
         for pkg in self.REQUIRED_BUILD_DEPS:
             try:
@@ -155,26 +155,64 @@ class KernelManager:
                     missing.append(pkg)
             except Exception:
                 missing.append(pkg)
+
+        # Include container engine and container image dependencies ONLY if build in container is selected
+        if use_container:
+            engine = self.get_container_engine()
+            if not engine:
+                missing.append('podman')
+            elif not self.has_container_image():
+                missing.append(f"container-image:{self.container_image_tag}")
+
         return missing
 
-    def install_build_dependencies(self, progress_callback=None):
-        """Installs kernel build dependencies using pkexec apt-get."""
+    def install_build_dependencies(self, progress_callback=None, use_container=False, force_rebuild=False):
+        """
+        Installs kernel build dependencies using pkexec apt-get.
+        Installs container engine and prepares container image ONLY if use_container is True.
+        """
+        pkgs = list(self.REQUIRED_BUILD_DEPS)
+        if use_container:
+            engine = self.get_container_engine()
+            if not engine and 'podman' not in pkgs:
+                pkgs.append('podman')
+
         if progress_callback:
             progress_callback("\n=======================================================")
-            progress_callback("[*] Requesting root authorization via pkexec to install build dependencies...")
+            mode_desc = "container & host" if use_container else "host compiler"
+            progress_callback(f"[*] Requesting root authorization via pkexec to install {mode_desc} dependencies...")
             progress_callback("=======================================================\n")
-            progress_callback(f"Packages to install: {' '.join(self.REQUIRED_BUILD_DEPS)}\n")
+            progress_callback(f"Packages to install: {' '.join(pkgs)}\n")
 
-        cmd = ['pkexec', 'apt-get', 'install', '-y'] + self.REQUIRED_BUILD_DEPS
+        cmd = ['pkexec', 'apt-get', 'install', '-y'] + pkgs
         try:
             self._run_cmd(cmd, progress_callback=progress_callback)
             if progress_callback:
-                progress_callback("\n[✓] Kernel compiler build dependencies installed successfully!\n")
-            return True
+                progress_callback("\n[✓] APT dependencies installed successfully!\n")
         except Exception as e:
             if progress_callback:
-                progress_callback(f"\n[!] Dependency installation failed: {e}\n")
+                progress_callback(f"\n[!] APT dependency installation failed: {e}\n")
             return False
+
+        # Build and verify container image ONLY if container build is selected
+        if use_container:
+            if progress_callback:
+                progress_callback("=======================================================")
+                progress_callback(f"[*] Setting up builder container image ({self.container_image_tag})...")
+                progress_callback("=======================================================\n")
+            try:
+                self.ensure_container_image(progress_callback=progress_callback, force=force_rebuild)
+                if progress_callback:
+                    progress_callback(f"\n[✓] Container image verified and ready: {self.container_image_tag}\n")
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"\n[!] Container image setup failed: {e}\n")
+                return False
+
+        if progress_callback:
+            mode_str = "Container-isolated" if use_container else "Host"
+            progress_callback(f"\n[✓] All {mode_str} dependencies ready!\n")
+        return True
 
     def get_output_kernel_dir(self):
         """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-debian."""
@@ -216,13 +254,13 @@ class KernelManager:
         except Exception:
             return False
 
-    def ensure_container_image(self, progress_callback=None):
+    def ensure_container_image(self, progress_callback=None, force=False):
         """Ensures the Debian Bookworm builder image is built and ready."""
         engine = self.get_container_engine()
         if not engine:
             raise Exception("Neither podman nor docker was found. Please install podman or docker.")
 
-        if self.has_container_image():
+        if not force and self.has_container_image():
             if progress_callback:
                 progress_callback(f"[✓] Container image verified: {self.container_image_tag} ({engine})")
             return True

@@ -107,9 +107,10 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
             self.container_row.set_subtitle(f"Detected engine: {engine.capitalize()} (Debian Bookworm isolated environment)")
             self.container_row.set_active(True)
         else:
-            self.container_row.set_subtitle("Neither Podman nor Docker detected; host build will be used")
-            self.container_row.set_active(False)
-            self.container_row.set_sensitive(False)
+            self.container_row.set_subtitle("Podman will be installed as a dependency (Debian Bookworm isolated environment)")
+            self.container_row.set_active(True)
+
+        self.container_row.connect("notify::active", self.on_container_toggled)
 
         self.options_group.add(self.container_row)
 
@@ -191,12 +192,14 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         # Clean build cache and verify saved config on startup
         self.kernel_manager.cleanup_cache_on_startup(progress_callback=self.log)
 
-        # Check compiler build dependencies status on startup
-        missing_deps = self.kernel_manager.check_build_dependencies()
+        # Check build dependencies status on startup (respecting container switch)
+        use_container = self.container_row.get_active()
+        missing_deps = self.kernel_manager.check_build_dependencies(use_container=use_container)
         if missing_deps:
-            self.log(f"[!] Notice: Missing {len(missing_deps)} build package(s): {', '.join(missing_deps)}. Click 'Install Dependencies' to install.")
+            self.log(f"[!] Notice: Missing {len(missing_deps)} build dependency item(s): {', '.join(missing_deps)}. Click 'Install Dependencies' to install.")
         else:
-            self.log("[✓] Kernel compiler build dependencies are verified and installed.")
+            mode = "Container & build" if use_container else "Host compiler"
+            self.log(f"[✓] {mode} dependencies are verified and installed.")
 
         # Automatically check for updates on startup
         self.on_check_updates_clicked(None)
@@ -259,11 +262,39 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         except Exception as e:
             self.log(f"[!] Could not open folder: {e}")
 
+    def on_container_toggled(self, row, param):
+        is_active = self.container_row.get_active()
+        engine = self.kernel_manager.get_container_engine()
+        if is_active:
+            if engine:
+                self.container_row.set_subtitle(f"Detected engine: {engine.capitalize()} (Debian Bookworm isolated environment)")
+            else:
+                self.container_row.set_subtitle("Podman will be installed as a dependency (Debian Bookworm isolated environment)")
+            self.log("[i] Container build enabled. Container dependencies will be included.")
+        else:
+            self.container_row.set_subtitle("Disabled (building directly on host system)")
+            self.log("[i] Container build disabled. Host compiler dependencies will be used.")
+
+        # Re-check dependencies dynamically for the newly selected mode
+        missing = self.kernel_manager.check_build_dependencies(use_container=is_active)
+        if missing:
+            self.log(f"[!] Notice: Missing {len(missing)} dependency item(s): {', '.join(missing)}. Click 'Install Dependencies' to install.")
+        else:
+            mode = "Container & build" if is_active else "Host compiler"
+            self.log(f"[✓] {mode} dependencies are verified and installed.")
+
     def on_install_deps_clicked(self, button):
-        missing = self.kernel_manager.check_build_dependencies()
+        use_container = self.container_row.get_active()
+        missing = self.kernel_manager.check_build_dependencies(use_container=use_container)
         if not missing:
             self.log("\n=======================================================")
-            self.log("[✓] All required kernel compiler dependencies are already installed:")
+            if use_container:
+                self.log("[✓] All required kernel build dependencies and container environment are already installed:")
+                engine = self.kernel_manager.get_container_engine() or "podman"
+                self.log(f"    • Container Engine: {engine}")
+                self.log(f"    • Container Image: {self.kernel_manager.container_image_tag} (verified)")
+            else:
+                self.log("[✓] All required host kernel compiler dependencies are already installed:")
             for dep in self.kernel_manager.REQUIRED_BUILD_DEPS:
                 self.log(f"    • {dep} (installed)")
             self.log("=======================================================\n")
@@ -271,7 +302,11 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
             dialog = Adw.MessageDialog(
                 transient_for=self,
                 heading="Dependencies Installed",
-                body="All required kernel compiler dependencies are already installed on your system.\n\nWould you like to run apt-get to verify and update them anyway?"
+                body=(
+                    "All required dependencies "
+                    + ("and container builder image " if use_container else "")
+                    + "are already installed on your system.\n\nWould you like to run verification/reinstallation anyway?"
+                )
             )
             dialog.add_response("cancel", "Keep Current")
             dialog.add_response("reinstall", "Update / Reinstall")
@@ -279,23 +314,28 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
 
             def on_dialog_response(dlg, response):
                 if response == "reinstall":
-                    self._start_deps_install()
+                    self._start_deps_install(use_container=use_container, force_rebuild=True)
 
             dialog.connect("response", on_dialog_response)
             dialog.present()
         else:
             self.log("\n=======================================================")
-            self.log(f"[*] Missing {len(missing)} compiler package(s): {', '.join(missing)}")
+            mode_desc = "Container & Build" if use_container else "Host Compiler"
+            self.log(f"[*] Missing {len(missing)} {mode_desc} dependency item(s): {', '.join(missing)}")
             self.log("=======================================================\n")
-            self._start_deps_install()
+            self._start_deps_install(use_container=use_container, force_rebuild=False)
 
-    def _start_deps_install(self):
+    def _start_deps_install(self, use_container=False, force_rebuild=False):
         self.deps_button.set_sensitive(False)
         self.install_button.set_sensitive(False)
         self.check_button.set_sensitive(False)
 
         def deps_task():
-            success = self.kernel_manager.install_build_dependencies(progress_callback=self.log)
+            success = self.kernel_manager.install_build_dependencies(
+                progress_callback=self.log,
+                use_container=use_container,
+                force_rebuild=force_rebuild
+            )
             GLib.idle_add(self._on_deps_complete, success)
 
         threading.Thread(target=deps_task, daemon=True).start()
@@ -304,6 +344,10 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.deps_button.set_sensitive(True)
         self.check_button.set_sensitive(True)
         self.install_button.set_sensitive(True)
+        if self.container_row.get_active():
+            engine = self.kernel_manager.get_container_engine()
+            if engine:
+                self.container_row.set_subtitle(f"Detected engine: {engine.capitalize()} (Debian Bookworm isolated environment)")
         if success:
             self.log("[✓] Build dependencies setup complete.")
         else:
