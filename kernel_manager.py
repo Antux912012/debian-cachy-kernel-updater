@@ -25,6 +25,7 @@ class KernelManager:
             'flex',
             'libssl-dev',
             'libelf-dev',
+            'libdw-dev',
             'bc',
             'rsync',
             'debhelper',
@@ -190,7 +191,7 @@ class KernelManager:
         return None
 
     def has_container_image(self):
-        """Checks if the Debian-based builder container image is already available."""
+        """Checks if the Debian-based builder container image is already available and has required tools."""
         engine = self.get_container_engine()
         if not engine:
             return False
@@ -198,11 +199,20 @@ class KernelManager:
             if engine == "podman":
                 res = subprocess.run([engine, "image", "exists", self.container_image_tag],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return res.returncode == 0
+                if res.returncode != 0:
+                    return False
             else:
                 res = subprocess.run([engine, "inspect", "--type=image", self.container_image_tag],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return res.returncode == 0
+                if res.returncode != 0:
+                    return False
+
+            # Verify that essential build tools (such as libdw-dev) exist in the container image
+            check_pkg = subprocess.run(
+                [engine, "run", "--rm", self.container_image_tag, "dpkg-query", "-W", "-f=${Status}", "libdw-dev"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+            )
+            return "install ok installed" in check_pkg.stdout
         except Exception:
             return False
 
@@ -237,6 +247,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
     libelf-dev \\
     libssl-dev \\
     libncurses-dev \\
+    libdw-dev \\
     rsync \\
     kmod \\
     cpio \\

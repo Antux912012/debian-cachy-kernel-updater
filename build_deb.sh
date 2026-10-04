@@ -29,7 +29,7 @@ Section: admin
 Priority: optional
 Architecture: all
 Maintainer: Antonio <antonio@localhost>
-Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, bc, libelf-dev, flex, bison, make, gcc, libssl-dev, rsync, pahole, kmod, cpio, libncurses-dev
+Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, bc, libelf-dev, flex, bison, make, gcc, libssl-dev, rsync, pahole, kmod, cpio, libncurses-dev, libdw-dev
 Recommends: podman | docker.io
 Description: Debian CachyOS Kernel Installer & Updater (GTK4/Adwaita)
  A native GTK4/Libadwaita application to check, compile, install, and

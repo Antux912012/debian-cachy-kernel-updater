@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libelf-dev \
     libssl-dev \
     libncurses-dev \
+    libdw-dev \
     rsync \
     kmod \
     cpio \
