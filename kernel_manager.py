@@ -9,8 +9,8 @@ class KernelManager:
     def __init__(self):
         self.releases_api = "https://api.github.com/repos/CachyOS/linux/releases?per_page=30"
         self.pkgbuild_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/PKGBUILD"
-        self.cachy_config_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/config"
-        self.download_dir = "/tmp/cachy-kernel-build"
+        cache_base = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+        self.download_dir = os.path.join(cache_base, "cachy-kernel-build")
         self.latest_version = None
         self.latest_tag = None
         self.download_url = None
@@ -186,9 +186,12 @@ class KernelManager:
         self._run_cmd(['scripts/config', '--disable', 'SYSTEM_TRUSTED_KEYS'], cwd=kernel_dir, progress_callback=None)
         self._run_cmd(['scripts/config', '--disable', 'SYSTEM_REVOCATION_KEYS'], cwd=kernel_dir, progress_callback=None)
         
-        # 2. Disable heavy debug info to prevent huge 40GB+ deb packages
-        self._run_cmd(['scripts/config', '--set-val', 'CONFIG_DEBUG_INFO_NONE', 'y'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--disable', 'DEBUG_INFO'], cwd=kernel_dir, progress_callback=None)
+        # 2. Disable heavy debug info to prevent huge 40GB+ deb packages and out-of-space errors
+        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO'], cwd=kernel_dir, progress_callback=None)
+        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF5'], cwd=kernel_dir, progress_callback=None)
+        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF4'], cwd=kernel_dir, progress_callback=None)
+        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT'], cwd=kernel_dir, progress_callback=None)
+        self._run_cmd(['scripts/config', '--enable', 'CONFIG_DEBUG_INFO_NONE'], cwd=kernel_dir, progress_callback=None)
 
         # 3. Update configuration
         self._run_cmd(['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)

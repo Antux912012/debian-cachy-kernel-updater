@@ -47,7 +47,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.set_icon_name("org.cachyos.debian.kernelupdater")
         self.window_title = Adw.WindowTitle(
             title="Debian CachyOS Kernel Updater",
-            subtitle="Installer, Updater & Rollback (v1.0.1)"
+            subtitle="Installer, Updater & Rollback (v1.0.2)"
         )
         self.header.set_title_widget(self.window_title)
         self.toolbar_view.add_top_bar(self.header)
