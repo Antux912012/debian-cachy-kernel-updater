@@ -140,6 +140,11 @@ cat << 'EOF' > index.html
       <p>Official Debian APT repository for <strong>CachyOS Kernel Installer & Updater</strong>. Supports Debian 12 (Bookworm), Debian 13 (Trixie), Sid, and Debian-based distributions.</p>
     </div>
 
+    <div class="card" style="border-left: 4px solid #f39c12;">
+      <h3 style="margin-top: 0; color: #f39c12;">⚠️ Experimental Software Notice</h3>
+      <p style="margin: 0; font-size: 0.95rem;">This tool is an independent community project and is currently <strong>experimental</strong>. Please ensure you always have a fallback stock Debian kernel installed on your system before updating.</p>
+    </div>
+
     <div class="card">
       <h2>🚀 Quick Installation</h2>
       <p>Run the following commands in your terminal to add the repository and install the application:</p>
@@ -165,6 +170,16 @@ sudo apt install cachy-kernel-updater</code></pre>
       </ul>
       <p>Source code and issue tracker available at <a href="https://github.com/Antux912012/debian-cachy-kernel-updater">GitHub: Antux912012/debian-cachy-kernel-updater</a>.</p>
     </div>
+
+    <div class="card">
+      <h2>🙏 Acknowledgements & Support CachyOS</h2>
+      <p>This project is inspired by and relies on the incredible work of the <strong>CachyOS Team</strong>. We thank them for their continuous innovation in high-performance Linux kernels and schedulers.</p>
+      <ul>
+        <li>Official Website: <a href="https://cachyos.org" target="_blank" rel="noopener">https://cachyos.org</a></li>
+        <li>GitHub: <a href="https://github.com/CachyOS" target="_blank" rel="noopener">https://github.com/CachyOS</a></li>
+        <li>💖 Support CachyOS: <a href="https://cachyos.org/donate/" target="_blank" rel="noopener">Donate to CachyOS</a> | <a href="https://www.patreon.com/CachyOS" target="_blank" rel="noopener">Patreon</a></li>
+      </ul>
+    </div>
   </div>
 </body>
 </html>
@@ -175,9 +190,10 @@ ls -la "$REPO_DIR"
 
 if [ "$1" = "--deploy" ] || [ "$1" = "-d" ]; then
     echo "=== 10. Deploying APT repository to gh-pages branch ==="
+    REMOTE_URL="$(git config --get remote.origin.url)"
     DEPLOY_TMP="/tmp/gh-pages-deploy-$$"
     rm -rf "$DEPLOY_TMP"
-    git clone "$DIR" "$DEPLOY_TMP"
+    git clone "$REMOTE_URL" "$DEPLOY_TMP"
     cd "$DEPLOY_TMP"
     git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
     git rm -rf . >/dev/null 2>&1 || true

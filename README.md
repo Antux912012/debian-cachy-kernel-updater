@@ -11,6 +11,10 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
   <img src="assets/Debian-Cachy-OS.jpeg" alt="Debian CachyOS Kernel Updater" width="750">
 </p>
 
+> [!WARNING]
+> **Disclaimer — Experimental Software:**
+> This tool is an independent community project and is currently **experimental**. Compiling, installing, or modifying system kernels carries inherent risks. While safety checks and rollback options are built in, you should **always maintain a fallback stock Debian kernel** on your system. Use at your own risk.
+
 ---
 
 ## Features
@@ -170,6 +174,22 @@ This generates `Cachy-Kernel-Updater-1.0.3-x86_64.AppImage`.
 
 ---
 
+## 🙏 Acknowledgements & Support CachyOS
+
+This project would not be possible without the remarkable, groundbreaking work of the **[CachyOS Team](https://cachyos.org/)**. 
+
+We express our sincerest gratitude to the CachyOS developers for their continuous innovation in the Linux ecosystem, including their performance-optimized kernel patches, advanced CPU schedulers (BORE, EEVDF, etc.), and fine-tuned configurations that make high-performance desktop responsiveness and gaming accessible to everyone.
+
+* 🌐 **Official Website:** [https://cachyos.org](https://cachyos.org)
+* 🐙 **Official GitHub:** [https://github.com/CachyOS](https://github.com/CachyOS)
+* 🐧 **CachyOS Kernel Source:** [https://github.com/CachyOS/linux](https://github.com/CachyOS/linux)
+* 💖 **Support & Donate to CachyOS:** If you enjoy the performance benefits of CachyOS kernels, please consider supporting their project directly through the **[CachyOS Donation Page](https://cachyos.org/donate/)** or their **[Patreon](https://www.patreon.com/CachyOS)**.
+
+*(Note: This updater is an independent, community-driven tool for Debian and is not officially affiliated with or maintained by the CachyOS core team).*
+
+---
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
