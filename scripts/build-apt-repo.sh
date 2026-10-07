@@ -15,7 +15,7 @@ mkdir -p "$REPO_DIR/dists/stable/main/binary-all"
 mkdir -p "$REPO_DIR/dists/stable/main/binary-amd64"
 
 echo "=== 2. Copying .deb packages ==="
-if [ ! -f "deb_dist/cachy-kernel-updater_1.0.5_all.deb" ]; then
+if [ ! -f "deb_dist/cachy-kernel-updater_1.0.6_all.deb" ]; then
     echo "deb_dist package not found, building..."
     ./build_deb.sh
 fi
@@ -164,7 +164,7 @@ sudo apt install cachy-kernel-updater</code></pre>
     <div class="card">
       <h2>📦 Direct Package Downloads</h2>
       <ul>
-        <li><a href="pool/main/c/cachy-kernel-updater/cachy-kernel-updater_1.0.5_all.deb">cachy-kernel-updater_1.0.5_all.deb</a> (Latest)</li>
+        <li><a href="pool/main/c/cachy-kernel-updater/cachy-kernel-updater_1.0.6_all.deb">cachy-kernel-updater_1.0.6_all.deb</a> (Latest)</li>
         <li><a href="KEY.asc">Repository GPG Public Key (ASCII Armored)</a></li>
         <li><a href="KEY.gpg">Repository GPG Public Key (Binary Dearmored)</a></li>
       </ul>

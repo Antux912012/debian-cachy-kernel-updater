@@ -44,7 +44,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.set_icon_name("org.cachyos.debian.kernelupdater")
         self.window_title = Adw.WindowTitle(
             title="Debian CachyOS Kernel Updater",
-            subtitle="Installer, Updater & Rollback (v1.0.5)"
+            subtitle="Installer, Updater & Rollback (v1.0.6)"
         )
         self.header.set_title_widget(self.window_title)
 
@@ -95,7 +95,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.status_box.append(inner_status_box)
         self.content_box.append(self.status_box)
 
-        # Build Options Group (Container & Output Location)
+        # Build Options Group (Container, Hardware Optimization & Output Location)
         self.options_group = Adw.PreferencesGroup()
         self.options_group.set_title("Build & Output Settings")
 
@@ -111,12 +111,18 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
             self.container_row.set_active(True)
 
         self.container_row.connect("notify::active", self.on_container_toggled)
-
         self.options_group.add(self.container_row)
+
+        self.system_opt_row = Adw.SwitchRow()
+        self.system_opt_row.set_title("Compile for my system (Experimental)")
+        self.system_opt_row.set_subtitle("Auto-detect CPU & hardware: native instructions (-march=native) & tailored drivers")
+        self.system_opt_row.set_active(False)
+        self.system_opt_row.connect("notify::active", self.on_system_opt_toggled)
+        self.options_group.add(self.system_opt_row)
 
         self.output_row = Adw.ActionRow()
         self.output_row.set_title("Output Package Folder")
-        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir())
+        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir(is_native=False))
 
         self.open_output_button = Gtk.Button(label="Open Folder")
         self.open_output_button.set_valign(Gtk.Align.CENTER)
@@ -233,7 +239,8 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
     def _update_version_ui(self, latest, is_matching):
         self.latest_label.set_label(f"Latest CachyOS Kernel: {latest}")
         self.log(f"[✓] Official latest CachyOS kernel version: {latest}")
-        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir())
+        is_native = self.system_opt_row.get_active()
+        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir(is_native=is_native))
 
         if is_matching:
             self.match_status_label.set_label("✅ You are currently running the latest CachyOS kernel.")
@@ -248,7 +255,8 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         return False
 
     def on_open_output_clicked(self, button):
-        out_dir = self.kernel_manager.last_output_dir or self.kernel_manager.get_output_kernel_dir()
+        is_native = self.system_opt_row.get_active()
+        out_dir = self.kernel_manager.last_output_dir or self.kernel_manager.get_output_kernel_dir(is_native=is_native)
         if not os.path.exists(out_dir):
             out_dir = self.kernel_manager.output_base_dir
         if not os.path.exists(out_dir):
@@ -282,6 +290,31 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         else:
             mode = "Container & build" if is_active else "Host compiler"
             self.log(f"[✓] {mode} dependencies are verified and installed.")
+
+    def on_system_opt_toggled(self, row, param):
+        is_active = self.system_opt_row.get_active()
+        if is_active:
+            hw = self.kernel_manager.detect_hardware()
+            mfg_str = f" • {hw['manufacturer']}" if hw['manufacturer'] != 'Generic' else ""
+            self.system_opt_row.set_subtitle(
+                f"Active: {hw['cpu_model']} ({hw['threads']}T){mfg_str} • Native instructions & local drivers"
+            )
+            self.log("\n=======================================================")
+            self.log("[*] 'Compile for my system' mode activated!")
+            self.log(f"    • Detected CPU: {hw['cpu_model']} ({hw['threads']} threads)")
+            self.log(f"    • CPU Vendor: {hw['vendor']} | Chassis: {'Laptop (Battery)' if hw['is_laptop'] else 'Desktop'}")
+            if hw['manufacturer'] != 'Generic':
+                self.log(f"    • Machine: {hw['manufacturer']} {hw['product_name']}")
+            self.log(f"    • Root Filesystem: {hw['root_fs']}")
+            self.log(f"    • Active Modules: {len(hw['loaded_modules'])} loaded hardware drivers")
+            self.log("    • Profile: Hardware-optimized (-march=native, localmodconfig, localversion=-cachyos-native-debian)")
+            self.log("=======================================================\n")
+        else:
+            self.system_opt_row.set_subtitle(
+                "Auto-detect CPU & hardware: native instructions (-march=native) & tailored drivers"
+            )
+            self.log("[i] 'Compile for my system' disabled: standard generic x86-64 build.")
+        self.output_row.set_subtitle(self.kernel_manager.get_output_kernel_dir(is_native=is_active))
 
     def on_install_deps_clicked(self, button):
         use_container = self.container_row.get_active()
@@ -355,16 +388,19 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         return False
 
     def on_install_clicked(self, button):
-        output_dir = self.kernel_manager.get_output_kernel_dir()
+        is_native = self.system_opt_row.get_active()
+        output_dir = self.kernel_manager.get_output_kernel_dir(is_native=is_native)
         use_container = self.container_row.get_active()
         engine = self.kernel_manager.get_container_engine() if use_container else "Host"
         mode_str = f"Container ({engine})" if use_container else "Host System"
+        opt_str = "Tailored for this machine (Native CPU -march=native & local drivers)" if is_native else "Generic x86-64 (Broad compatibility)"
 
         dialog = Adw.MessageDialog(
             transient_for=self,
             heading="Grant Access & Start Build",
             body=(
-                f"Kernel compilation mode: {mode_str}\n\n"
+                f"Kernel compilation mode: {mode_str}\n"
+                f"Hardware optimization: {opt_str}\n\n"
                 f"Please grant permission to generate and store the output kernel in:\n"
                 f"📂 {output_dir}\n\n"
                 f"All generated Debian (.deb) packages, kernel configuration, and installation helper scripts will be saved in this location."
@@ -381,19 +417,21 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
                     self.log(f"[✓] Permission granted. Output directory verified:\n    {output_dir}")
                 except Exception as e:
                     self.log(f"[!] Warning creating output directory: {e}")
-                self._start_kernel_build(use_container=use_container)
+                self._start_kernel_build(use_container=use_container, optimize_for_system=is_native)
             else:
                 self.log("[i] Build cancelled by user (access not granted).")
 
         dialog.connect("response", on_response)
         dialog.present()
 
-    def _start_kernel_build(self, use_container):
+    def _start_kernel_build(self, use_container, optimize_for_system=False):
         self.log("\n=======================================================")
         self.log("[*] Starting CachyOS kernel download and build task...")
         mode_desc = f"Container ({self.kernel_manager.get_container_engine()})" if use_container else "Host System"
+        opt_desc = "Tailored for this machine (Native CPU & local drivers)" if optimize_for_system else "Generic x86-64"
         self.log(f"    Build Mode: {mode_desc}")
-        self.log(f"    Output Folder: {self.kernel_manager.get_output_kernel_dir()}")
+        self.log(f"    Optimization: {opt_desc}")
+        self.log(f"    Output Folder: {self.kernel_manager.get_output_kernel_dir(is_native=optimize_for_system)}")
         self.log("=======================================================\n")
         self.install_button.set_sensitive(False)
         self.check_button.set_sensitive(False)
@@ -402,7 +440,12 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         def build_task():
             try:
                 kernel_dir = self.kernel_manager.download_kernel(progress_callback=self.log)
-                self.kernel_manager.compile_kernel(kernel_dir, progress_callback=self.log, use_container=use_container)
+                self.kernel_manager.compile_kernel(
+                    kernel_dir,
+                    progress_callback=self.log,
+                    use_container=use_container,
+                    optimize_for_system=optimize_for_system
+                )
                 GLib.idle_add(self._on_build_complete, True)
             except Exception as e:
                 self.log(f"\n[!] Build task failed: {str(e)}")

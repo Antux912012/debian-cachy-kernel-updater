@@ -16,6 +16,7 @@ class KernelManager:
         config_base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
         self.config_dir = os.path.join(config_base, "cachy-kernel-updater")
         self.saved_config_path = os.path.join(self.config_dir, "kernel.config")
+        self.saved_native_config_path = os.path.join(self.config_dir, "kernel-native.config")
         os.makedirs(self.config_dir, exist_ok=True)
 
         self.REQUIRED_BUILD_DEPS = [
@@ -48,6 +49,78 @@ class KernelManager:
             return subprocess.check_output(['uname', '-r'], text=True).strip()
         except Exception as e:
             return f"Error: {e}"
+
+    def detect_hardware(self):
+        """
+        Detects system hardware: CPU model, vendor, thread count, laptop/chassis status,
+        root filesystem, manufacturer, and loaded kernel modules.
+        Returns a dict of detected hardware details.
+        """
+        import glob
+        info = {
+            'cpu_model': 'Generic x86-64',
+            'vendor': 'Unknown',
+            'threads': os.cpu_count() or 4,
+            'is_laptop': False,
+            'manufacturer': 'Generic',
+            'product_name': 'PC',
+            'root_fs': 'ext4',
+            'loaded_modules': []
+        }
+
+        # 1. CPU Info from /proc/cpuinfo
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                for line in f:
+                    if ':' in line:
+                        k, v = [x.strip() for x in line.split(':', 1)]
+                        if k == 'model name' and info['cpu_model'] == 'Generic x86-64':
+                            info['cpu_model'] = v
+                        elif k == 'vendor_id' and info['vendor'] == 'Unknown':
+                            info['vendor'] = v
+        except Exception:
+            pass
+
+        # 2. Laptop detection via /sys/class/power_supply
+        try:
+            batteries = glob.glob('/sys/class/power_supply/BAT*')
+            if batteries:
+                info['is_laptop'] = True
+        except Exception:
+            pass
+
+        # 3. DMI info (Manufacturer and Product)
+        try:
+            if os.path.exists('/sys/class/dmi/id/sys_vendor'):
+                with open('/sys/class/dmi/id/sys_vendor', 'r') as f:
+                    info['manufacturer'] = f.read().strip()
+            if os.path.exists('/sys/class/dmi/id/product_name'):
+                with open('/sys/class/dmi/id/product_name', 'r') as f:
+                    info['product_name'] = f.read().strip()
+        except Exception:
+            pass
+
+        # 4. Root Filesystem
+        try:
+            df_out = subprocess.check_output(['df', '-T', '/'], text=True).splitlines()
+            if len(df_out) > 1:
+                info['root_fs'] = df_out[1].split()[1]
+        except Exception:
+            pass
+
+        # 5. Loaded kernel modules from lsmod
+        try:
+            lsmod_out = subprocess.check_output(['lsmod'], text=True)
+            modules = []
+            for line in lsmod_out.splitlines()[1:]:
+                parts = line.split()
+                if parts:
+                    modules.append(parts[0])
+            info['loaded_modules'] = modules
+        except Exception:
+            pass
+
+        return info
 
     def get_latest_cachy_version(self):
         """Fetches the latest official CachyOS kernel version from CachyOS GitHub repositories."""
@@ -127,7 +200,7 @@ class KernelManager:
             progress_callback(f"> {' '.join(cmd)}")
             
         process = subprocess.Popen(
-            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+            cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
         
         if process.stdout:
@@ -214,10 +287,11 @@ class KernelManager:
             progress_callback(f"\n[✓] All {mode_str} dependencies ready!\n")
         return True
 
-    def get_output_kernel_dir(self):
-        """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-debian."""
+    def get_output_kernel_dir(self, is_native=False):
+        """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-]debian."""
         ver = self.latest_version or "latest"
-        folder_name = f"Linux-kernel-CachyOS-{ver}-debian"
+        tag = "native-debian" if is_native else "debian"
+        folder_name = f"Linux-kernel-CachyOS-{ver}-{tag}"
         return os.path.join(self.output_base_dir, folder_name)
 
     def get_container_engine(self):
@@ -518,7 +592,7 @@ WORKDIR /workspace
 
         return extracted_dir
 
-    def compile_kernel(self, kernel_dir, progress_callback=None, use_container=False):
+    def compile_kernel(self, kernel_dir, progress_callback=None, use_container=False, optimize_for_system=False):
         """Prepares configuration and compiles the kernel into Debian packages."""
         if progress_callback:
             progress_callback("Setting up kernel configuration for Debian...")
@@ -526,10 +600,11 @@ WORKDIR /workspace
         config_dst = os.path.join(kernel_dir, ".config")
 
         # Recover saved config if available, otherwise use running CachyOS kernel or downloaded official config
-        if os.path.exists(self.saved_config_path) and os.path.getsize(self.saved_config_path) > 1000:
+        active_saved_cfg = self.saved_native_config_path if optimize_for_system else self.saved_config_path
+        if os.path.exists(active_saved_cfg) and os.path.getsize(active_saved_cfg) > 1000:
             if progress_callback:
-                progress_callback(f"[✓] Recovering previously saved kernel configuration from {self.saved_config_path}...")
-            shutil.copy(self.saved_config_path, config_dst)
+                progress_callback(f"[✓] Recovering previously saved kernel configuration from {active_saved_cfg}...")
+            shutil.copy(active_saved_cfg, config_dst)
         else:
             current_kernel = self.get_current_kernel_version()
             boot_cfg = f"/boot/config-{current_kernel}"
@@ -562,9 +637,6 @@ WORKDIR /workspace
         self._run_cmd(['scripts/config', '--disable', 'CONFIG_INTEL_TDX_HOST'], cwd=kernel_dir, progress_callback=None)
         self._run_cmd(['scripts/config', '--disable', 'CONFIG_KVM_INTEL_TDX'], cwd=kernel_dir, progress_callback=None)
 
-        # 4. Set Debian localversion so generated kernel has clean branding
-        self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'], cwd=kernel_dir, progress_callback=None)
-
         # Prepare container runner prefix if container build is selected
         container_prefix = []
         if use_container:
@@ -588,6 +660,126 @@ WORKDIR /workspace
                 self.container_image_tag
             ]
 
+        # 4. Hardware Optimization (Compile for my system) or Generic Debian branding
+        if optimize_for_system:
+            hw = self.detect_hardware()
+            if progress_callback:
+                progress_callback("\n=======================================================")
+                progress_callback("[*] 'Compile for My System' Hardware Auto-Detection:")
+                progress_callback(f"    • CPU: {hw['cpu_model']} ({hw['threads']} threads)")
+                progress_callback(f"    • Vendor: {hw['vendor']} | Chassis: {'Laptop (Battery)' if hw['is_laptop'] else 'Desktop/Workstation'}")
+                if hw['manufacturer'] != 'Generic':
+                    progress_callback(f"    • Machine: {hw['manufacturer']} {hw['product_name']}")
+                progress_callback(f"    • Root Filesystem: {hw['root_fs']}")
+                progress_callback(f"    • Active Modules: {len(hw['loaded_modules'])} loaded hardware drivers detected")
+                progress_callback("=======================================================\n")
+
+            # Snapshot host lsmod into download_dir for streamline_config / localmodconfig
+            lsmod_host_file = os.path.join(self.download_dir, "host_lsmod.txt")
+            try:
+                lsmod_raw = subprocess.check_output(['lsmod'], text=True)
+                with open(lsmod_host_file, "w") as f:
+                    f.write(lsmod_raw)
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"[!] Warning: failed to export host lsmod: {e}")
+
+            if progress_callback:
+                progress_callback("[*] Applying 'make localmodconfig' (stripping unneeded hardware drivers)...")
+
+            try:
+                if use_container:
+                    self._run_cmd(
+                        container_prefix + ['sh', '-c', 'make localmodconfig LSMOD=/workspace/host_lsmod.txt < /dev/null'],
+                        cwd=kernel_dir,
+                        progress_callback=progress_callback
+                    )
+                else:
+                    self._run_cmd(
+                        ['sh', '-c', f'make localmodconfig LSMOD={lsmod_host_file} < /dev/null'],
+                        cwd=kernel_dir,
+                        progress_callback=progress_callback
+                    )
+                if progress_callback:
+                    progress_callback("[✓] Unused hardware drivers successfully trimmed!")
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"[!] Warning: localmodconfig encountered non-fatal note: {e}")
+
+            if progress_callback:
+                progress_callback("[*] Enforcing hardware safety baselines & CPU native instructions...")
+
+            safeties = [
+                # Essential filesystems
+                ('enable', 'CONFIG_EXT4_FS'),
+                ('module', 'CONFIG_BTRFS_FS'),
+                ('enable', 'CONFIG_VFAT_FS'),
+                ('enable', 'CONFIG_FAT_FS'),
+                ('module', 'CONFIG_EXFAT_FS'),
+                ('module', 'CONFIG_NTFS3_FS'),
+                # Essential storage
+                ('enable', 'CONFIG_BLK_DEV_SD'),
+                ('enable', 'CONFIG_BLK_DEV_NVME'),
+                ('enable', 'CONFIG_NVME_CORE'),
+                ('enable', 'CONFIG_ATA'),
+                ('enable', 'CONFIG_SATA_AHCI'),
+                ('enable', 'CONFIG_USB_STORAGE'),
+                ('module', 'CONFIG_USB_UAS'),
+                # Essential input
+                ('enable', 'CONFIG_HID'),
+                ('enable', 'CONFIG_HID_GENERIC'),
+                ('enable', 'CONFIG_USB_HID'),
+                # Native CPU instruction set (-march=native)
+                ('enable', 'CONFIG_X86_NATIVE_CPU'),
+                ('disable', 'CONFIG_MGENERIC_CPU'),
+            ]
+
+            # CPU Vendor tuning
+            if 'intel' in hw['vendor'].lower():
+                safeties.extend([
+                    ('enable', 'CONFIG_X86_INTEL_PSTATE'),
+                    ('enable', 'CONFIG_INTEL_IDLE'),
+                    ('enable', 'CONFIG_MNATIVE_INTEL'),
+                ])
+            elif 'amd' in hw['vendor'].lower():
+                safeties.extend([
+                    ('enable', 'CONFIG_X86_AMD_PSTATE'),
+                    ('enable', 'CONFIG_MNATIVE_AMD'),
+                ])
+
+            # Laptop / Chassis tuning
+            if hw['is_laptop']:
+                safeties.extend([
+                    ('enable', 'CONFIG_CPU_FREQ_GOV_POWERSAVE'),
+                    ('enable', 'CONFIG_NO_HZ_IDLE'),
+                ])
+
+            # Manufacturer-specific ACPI modules
+            mfg = hw['manufacturer'].lower()
+            if 'lenovo' in mfg or 'thinkpad' in hw['product_name'].lower():
+                safeties.append(('module', 'CONFIG_THINKPAD_ACPI'))
+            elif 'dell' in mfg:
+                safeties.append(('module', 'CONFIG_DELL_WMI'))
+            elif 'asus' in mfg:
+                safeties.append(('module', 'CONFIG_ASUS_WMI'))
+
+            for action, opt in safeties:
+                flag = f'--{action}'
+                self._run_cmd(['scripts/config', flag, opt], cwd=kernel_dir, progress_callback=None)
+
+            # Cap NR_CPUS reasonably instead of 8192
+            nr_cpus = max(16, min(128, hw['threads'] * 2))
+            self._run_cmd(['scripts/config', '--set-val', 'CONFIG_NR_CPUS', str(nr_cpus)], cwd=kernel_dir, progress_callback=None)
+
+            # Localversion with native branding
+            self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-native-debian'], cwd=kernel_dir, progress_callback=None)
+
+            if progress_callback:
+                progress_callback(f"[✓] System profile tuned: NR_CPUS={nr_cpus}, -march=native enabled, localversion=-cachyos-native-debian")
+        else:
+            # Standard generic Debian branding
+            self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'], cwd=kernel_dir, progress_callback=None)
+
         # 5. Update configuration for the new kernel version
         if use_container:
             self._run_cmd(container_prefix + ['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
@@ -596,10 +788,11 @@ WORKDIR /workspace
 
         # 6. Save the generated configuration to persistent storage for future updates
         try:
-            os.makedirs(os.path.dirname(self.saved_config_path), exist_ok=True)
-            shutil.copy(config_dst, self.saved_config_path)
+            target_saved_cfg = self.saved_native_config_path if optimize_for_system else self.saved_config_path
+            os.makedirs(os.path.dirname(target_saved_cfg), exist_ok=True)
+            shutil.copy(config_dst, target_saved_cfg)
             if progress_callback:
-                progress_callback(f"[✓] Preserved updated kernel configuration in {self.saved_config_path}")
+                progress_callback(f"[✓] Preserved updated kernel configuration in {target_saved_cfg}")
         except Exception as e:
             if progress_callback:
                 progress_callback(f"[!] Warning: could not save configuration: {e}")
@@ -625,8 +818,8 @@ WORKDIR /workspace
                 except Exception:
                     pass
 
-        # 7. Collect all generated deb packages and save to ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-debian
-        output_dir = self.get_output_kernel_dir()
+        # 7. Collect all generated deb packages and save to ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-]debian
+        output_dir = self.get_output_kernel_dir(is_native=optimize_for_system)
         os.makedirs(output_dir, exist_ok=True)
         self.last_output_dir = output_dir
 
@@ -667,14 +860,15 @@ WORKDIR /workspace
         install_script_path = os.path.join(output_dir, "install.sh")
         try:
             ver = self.latest_version or "latest"
+            kernel_brand = f"Linux-kernel-CachyOS-{ver}-{'native-' if optimize_for_system else ''}debian"
             with open(install_script_path, "w") as sf:
                 sf.write(f"""#!/usr/bin/env bash
 # CachyOS Kernel Debian Package Installer
-# Kernel: Linux-kernel-CachyOS-{ver}-debian
+# Kernel: {kernel_brand}
 set -e
 
 DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" >/dev/null 2>&1 && pwd)"
-echo "=== Installing Linux-kernel-CachyOS-{ver}-debian ==="
+echo "=== Installing {kernel_brand} ==="
 echo "Package directory: $DIR"
 
 DEBS=()
@@ -722,9 +916,12 @@ echo "=========================================================="
         search_dirs = []
         if self.last_output_dir and os.path.isdir(self.last_output_dir):
             search_dirs.append(self.last_output_dir)
-        output_dir = self.get_output_kernel_dir()
-        if os.path.isdir(output_dir) and output_dir not in search_dirs:
-            search_dirs.append(output_dir)
+        output_dir_native = self.get_output_kernel_dir(is_native=True)
+        if os.path.isdir(output_dir_native) and output_dir_native not in search_dirs:
+            search_dirs.append(output_dir_native)
+        output_dir_generic = self.get_output_kernel_dir(is_native=False)
+        if os.path.isdir(output_dir_generic) and output_dir_generic not in search_dirs:
+            search_dirs.append(output_dir_generic)
         if self.download_dir not in search_dirs:
             search_dirs.append(self.download_dir)
 
