@@ -12,7 +12,8 @@ mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
 mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps
 
-cp -v main.py kernel_manager.py AppDir/usr/share/cachy-kernel-updater/
+cp -v main.py kernel_manager.py sign-kernel.sh AppDir/usr/share/cachy-kernel-updater/
+chmod 755 AppDir/usr/share/cachy-kernel-updater/sign-kernel.sh
 
 # Copy official icons into AppDir
 cp -v assets/org.cachyos.debian.kernelupdater.svg AppDir/usr/share/icons/hicolor/scalable/apps/

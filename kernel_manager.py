@@ -21,18 +21,35 @@ class KernelManager:
 
         self.REQUIRED_BUILD_DEPS = [
             'build-essential',
-            'libncurses-dev',
+            'bc',
             'bison',
             'flex',
             'libssl-dev',
             'libelf-dev',
+            'libncurses-dev',
             'libdw-dev',
-            'bc',
-            'rsync',
-            'debhelper',
+            'libudev-dev',
+            'libpci-dev',
+            'libiberty-dev',
+            'autoconf',
+            'dwarves',
             'pahole',
+            'zstd',
+            'xz-utils',
+            'lz4',
+            'cpio',
+            'rsync',
             'kmod',
-            'cpio'
+            'fakeroot',
+            'dpkg-dev',
+            'debhelper',
+            'devscripts',
+            'clang',
+            'llvm',
+            'lld',
+            'sbsigntool',
+            'mokutil',
+            'openssl'
         ]
 
         self.latest_version = None
@@ -194,24 +211,81 @@ class KernelManager:
             return True
         return False
 
-    def _run_cmd(self, cmd, cwd=None, progress_callback=None):
-        """Runs a command and yields output live to the callback."""
+    def _run_cmd(self, cmd, cwd=None, progress_callback=None, env=None, tee_log=True):
+        """Runs a command, logs output live, captures errors, and tees to ~/.cache/cachy-kernel-build/build.log."""
         if progress_callback:
             progress_callback(f"> {' '.join(cmd)}")
-            
+
+        run_env = os.environ.copy()
+        if env:
+            run_env.update(env)
+
+        os.makedirs(self.download_dir, exist_ok=True)
+        build_log_path = os.path.join(self.download_dir, "build.log")
+
+        log_file = None
+        if tee_log:
+            try:
+                log_file = open(build_log_path, "a", encoding="utf-8", errors="replace")
+                log_file.write(f"\n--- [Command: {' '.join(cmd)}] ---\n")
+                log_file.flush()
+            except Exception:
+                log_file = None
+
+        error_regex = re.compile(r'(error:|fatal error:|undefined reference|No space left on device|Killed)', re.IGNORECASE)
+        captured_errors = []
+
         process = subprocess.Popen(
-            cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+            cmd, cwd=cwd, env=run_env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
-        
-        if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                if progress_callback and line:
-                    progress_callback(line.rstrip())
-                    
-        process.stdout.close()
+
+        try:
+            if process.stdout:
+                for line in iter(process.stdout.readline, ''):
+                    stripped = line.rstrip()
+                    if log_file:
+                        try:
+                            log_file.write(line)
+                            log_file.flush()
+                        except Exception:
+                            pass
+
+                    if error_regex.search(stripped):
+                        if not re.search(r'0\s+errors', stripped, re.IGNORECASE):
+                            captured_errors.append(stripped)
+
+                    if progress_callback and line:
+                        progress_callback(stripped)
+        finally:
+            if process.stdout:
+                process.stdout.close()
+            if log_file:
+                try:
+                    log_file.close()
+                except Exception:
+                    pass
+
         rc = process.wait()
         if rc != 0:
-            raise Exception(f"Command failed with return code {rc}: {' '.join(cmd)}")
+            err_msg_lines = [
+                f"\n=======================================================",
+                f"[!] BUILD FAILURE (Return code {rc})",
+                f"    Command: {' '.join(cmd)}",
+                f"======================================================="
+            ]
+            if captured_errors:
+                err_msg_lines.append("[!] Root-cause compilation error(s) detected:")
+                for err_line in captured_errors[-30:]:
+                    err_msg_lines.append(f"    >>> {err_line}")
+                err_msg_lines.append("-------------------------------------------------------")
+            err_msg_lines.append(f"[!] Full build log available at:\n    {build_log_path}")
+            err_msg_lines.append("=======================================================\n")
+
+            full_error_text = "\n".join(err_msg_lines)
+            if progress_callback:
+                progress_callback(full_error_text)
+            raise Exception(full_error_text)
 
     def check_build_dependencies(self, use_container=False):
         """Returns a list of missing build dependencies. Checks container engine and image only if use_container is True."""
@@ -350,31 +424,52 @@ class KernelManager:
             os.makedirs(self.download_dir, exist_ok=True)
             with open(containerfile_path, "w") as cf:
                 cf.write("""FROM docker.io/library/debian:bookworm-slim
+
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \\
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \\
     build-essential \\
     bc \\
     bison \\
     flex \\
-    libelf-dev \\
     libssl-dev \\
+    libelf-dev \\
     libncurses-dev \\
     libdw-dev \\
-    rsync \\
-    kmod \\
-    cpio \\
+    libudev-dev \\
+    libpci-dev \\
+    libiberty-dev \\
+    autoconf \\
+    dwarves \\
     pahole \\
     zstd \\
-    tar \\
     xz-utils \\
+    lz4 \\
+    cpio \\
+    rsync \\
+    kmod \\
+    fakeroot \\
     dpkg-dev \\
     debhelper \\
-    python3 \\
-    gcc \\
-    make \\
+    devscripts \\
     git \\
+    curl \\
+    wget \\
     ca-certificates \\
+    python3 \\
+    python3-gi \\
+    python3-requests \\
+    clang \\
+    llvm \\
+    lld \\
+    sbsigntool \\
+    mokutil \\
+    openssl \\
     && rm -rf /var/lib/apt/lists/*
+
+ENV DEBFULLNAME="CachyOS Debian Builder"
+ENV DEBEMAIL="builder@localhost"
+
 WORKDIR /workspace
 """)
 
@@ -621,21 +716,58 @@ WORKDIR /workspace
                 else:
                     urllib.request.urlretrieve(self.cachy_config_raw, config_dst)
 
-        # Apply necessary tweaks for Debian environment
-        # 1. Disable trusted and revocation keys which cause Debian builds to fail without local certificates
-        self._run_cmd(['scripts/config', '--disable', 'SYSTEM_TRUSTED_KEYS'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--disable', 'SYSTEM_REVOCATION_KEYS'], cwd=kernel_dir, progress_callback=None)
-        
-        # 2. Disable heavy debug info to prevent huge 40GB+ deb packages and out-of-space errors
-        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF5'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF4'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--disable', 'CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--enable', 'CONFIG_DEBUG_INFO_NONE'], cwd=kernel_dir, progress_callback=None)
+        if not use_container:
+            missing_deps = self.check_build_dependencies(use_container=False)
+            if missing_deps:
+                raise Exception(
+                    f"Missing required host compiler packages: {', '.join(missing_deps)}.\n"
+                    f"Please install them by clicking 'Install Dependencies' or run:\n"
+                    f"sudo apt-get install -y {' '.join(missing_deps)}"
+                )
 
-        # 3. Disable enterprise server-only features that can fail on desktop/laptop toolchains
-        self._run_cmd(['scripts/config', '--disable', 'CONFIG_INTEL_TDX_HOST'], cwd=kernel_dir, progress_callback=None)
-        self._run_cmd(['scripts/config', '--disable', 'CONFIG_KVM_INTEL_TDX'], cwd=kernel_dir, progress_callback=None)
+        # Apply necessary tweaks for Debian environment & sanitize .config
+        # 1. Remove Debian/Canonical hardcoded certificate paths (Prevents Makefile:2207 crash)
+        # 2. Bypass build-time module signing (avoids ephemeral key/cert failures in containers)
+        # 3. Keep signature verification support compiled into the kernel for post-build user signing
+        # 4. Disable heavy DWARF/BTF debug symbols by default (prevents 30GB+ disk exhaustion & pahole crashes)
+        # 5. Disable strict -Werror and Rust (prevents compiler version mismatch failures on Debian)
+        config_sanitize_cmd = [
+            'scripts/config',
+            '--set-str', 'SYSTEM_TRUSTED_KEYS', '',
+            '--set-str', 'SYSTEM_REVOCATION_KEYS', '',
+            '--set-str', 'MODULE_SIG_KEY', '',
+            '--disable', 'MODULE_SIG_ALL',
+            '--disable', 'MODULE_SIG_FORCE',
+            '--enable', 'MODULE_SIG',
+            '--enable', 'MODULE_SIG_SHA512',
+            '--enable', 'KEXEC_SIG',
+            '--disable', 'DEBUG_INFO_BTF',
+            '--disable', 'DEBUG_INFO_DWARF4',
+            '--disable', 'DEBUG_INFO_DWARF5',
+            '--disable', 'DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT',
+            '--enable', 'DEBUG_INFO_NONE',
+            '--disable', 'WERROR',
+            '--disable', 'DRM_WERROR',
+            '--disable', 'RUST',
+            '--disable', 'INTEL_TDX_HOST',
+            '--disable', 'KVM_INTEL_TDX',
+        ]
+        self._run_cmd(config_sanitize_cmd, cwd=kernel_dir, progress_callback=None)
+
+        # Check whether building with Clang/LLVM or GCC
+        use_llvm = False
+        if os.path.exists(config_dst):
+            try:
+                with open(config_dst, 'r') as cf:
+                    cfg_text = cf.read()
+                    if 'CONFIG_LTO_CLANG_THIN=y' in cfg_text or 'CONFIG_LTO_CLANG_FULL=y' in cfg_text:
+                        use_llvm = True
+            except Exception:
+                pass
+
+        if not use_llvm:
+            # If building with GCC, ensure Clang LTO is disabled first
+            self._run_cmd(['scripts/config', '--disable', 'LTO_CLANG_THIN', '--enable', 'LTO_NONE'], cwd=kernel_dir, progress_callback=None)
 
         # Prepare container runner prefix if container build is selected
         container_prefix = []
@@ -655,8 +787,11 @@ WORKDIR /workspace
             container_prefix += [
                 "-v", f"{self.download_dir}:/workspace:z",
                 "-w", f"/workspace/{rel_kernel}",
+                "-e", "DEBFULLNAME=CachyOS Debian Builder",
+                "-e", "DEBEMAIL=builder@localhost",
                 "-e", "KBUILD_BUILD_USER=cachyos",
                 "-e", "KBUILD_BUILD_HOST=debian",
+                "-e", "DPKG_FLAGS=-d -uc -us",
                 self.container_image_tag
             ]
 
@@ -780,11 +915,13 @@ WORKDIR /workspace
             # Standard generic Debian branding
             self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'], cwd=kernel_dir, progress_callback=None)
 
-        # 5. Update configuration for the new kernel version
+        # 5. Update configuration for the new kernel version non-interactively
+        toolchain_flags = ['LLVM=1', 'LLVM_IAS=1'] if use_llvm else []
+        olddef_cmd = ['make'] + toolchain_flags + ['olddefconfig']
         if use_container:
-            self._run_cmd(container_prefix + ['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
+            self._run_cmd(container_prefix + olddef_cmd, cwd=kernel_dir, progress_callback=progress_callback)
         else:
-            self._run_cmd(['make', 'olddefconfig'], cwd=kernel_dir, progress_callback=progress_callback)
+            self._run_cmd(olddef_cmd, cwd=kernel_dir, progress_callback=progress_callback)
 
         # 6. Save the generated configuration to persistent storage for future updates
         try:
@@ -797,18 +934,41 @@ WORKDIR /workspace
             if progress_callback:
                 progress_callback(f"[!] Warning: could not save configuration: {e}")
 
+        # 7. Clean stale packaging state (Step 4.1: removes leftover debian/ directory)
+        debian_pkg_dir = os.path.join(kernel_dir, "debian")
+        if os.path.exists(debian_pkg_dir):
+            if progress_callback:
+                progress_callback("[*] Cleaning stale debian/ packaging directory before build...")
+            try:
+                shutil.rmtree(debian_pkg_dir, ignore_errors=True)
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"[!] Warning: could not remove debian directory: {e}")
+
+        # 8. Packaging environment variables (Step 4.2)
+        packaging_env = {
+            'DEBFULLNAME': 'CachyOS Debian Builder',
+            'DEBEMAIL': 'builder@localhost',
+            'KBUILD_BUILD_USER': 'cachyos',
+            'KBUILD_BUILD_HOST': 'debian',
+            'DPKG_FLAGS': '-d -uc -us',
+        }
+
         cores = str(os.cpu_count() or 4)
         if progress_callback:
             mode_desc = f"inside Debian container ({self.get_container_engine()})" if use_container else "on host system"
-            progress_callback(f"Starting kernel compilation {mode_desc} using {cores} CPU threads...")
+            tc_desc = " (Clang/LLVM)" if use_llvm else " (GCC)"
+            progress_callback(f"Starting kernel compilation {mode_desc}{tc_desc} using {cores} CPU threads...")
             progress_callback("Running 'make bindeb-pkg' (Debian package build)...")
+
+        bindeb_cmd = ['make', f'-j{cores}'] + toolchain_flags + ['bindeb-pkg', 'DPKG_FLAGS=-d -uc -us']
 
         try:
             # Compile and generate .deb packages
             if use_container:
-                self._run_cmd(container_prefix + ['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
+                self._run_cmd(container_prefix + bindeb_cmd, cwd=kernel_dir, progress_callback=progress_callback)
             else:
-                self._run_cmd(['make', f'-j{cores}', 'bindeb-pkg'], cwd=kernel_dir, progress_callback=progress_callback)
+                self._run_cmd(bindeb_cmd, cwd=kernel_dir, progress_callback=progress_callback, env=packaging_env)
         finally:
             # Clean up active build lockfile
             lock_file = os.path.join(self.download_dir, ".building")
@@ -992,3 +1152,403 @@ echo "=========================================================="
             if progress_callback:
                 progress_callback(f"Failed to remove {package_name}: {e}")
             return False
+
+    def get_secure_boot_status(self) -> bool:
+        """
+        Checks if UEFI Secure Boot is active on the system.
+        Returns True if 'SecureBoot enabled' is reported by mokutil, False otherwise.
+        """
+        try:
+            res = subprocess.run(
+                ['mokutil', '--sb-state'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5
+            )
+            out = (res.stdout + res.stderr).lower()
+            return 'secureboot enabled' in out
+        except Exception:
+            return False
+
+    def ensure_mok_keys(self, key_dir="~/.config/cachy-kernel-updater/mok") -> dict:
+        """
+        Ensures persistent MOK keypair exists. Checks key_dir, /var/lib/shim-signed/mok/,
+        or creates a new RSA-2048 X.509 keypair valid for 10 years (3650 days).
+        Returns a dict: {'priv': path, 'pem': path, 'der': path}.
+        """
+        expanded_dir = os.path.expanduser(key_dir)
+        priv_path = os.path.join(expanded_dir, "MOK.priv")
+        pem_path = os.path.join(expanded_dir, "MOK.pem")
+        der_path = os.path.join(expanded_dir, "MOK.der")
+
+        # 1. Check specified key_dir
+        if os.path.isfile(priv_path) and (os.path.isfile(pem_path) or os.path.isfile(der_path)):
+            if not os.path.isfile(pem_path) and os.path.isfile(der_path):
+                subprocess.run(['openssl', 'x509', '-inform', 'DER', '-in', der_path, '-out', pem_path], check=True)
+            elif not os.path.isfile(der_path) and os.path.isfile(pem_path):
+                subprocess.run(['openssl', 'x509', '-in', pem_path, '-outform', 'DER', '-out', der_path], check=True)
+            return {"priv": priv_path, "pem": pem_path, "der": der_path}
+
+        # 2. Check /var/lib/shim-signed/mok/
+        shim_dir = "/var/lib/shim-signed/mok"
+        s_priv = os.path.join(shim_dir, "MOK.priv")
+        s_pem = os.path.join(shim_dir, "MOK.pem")
+        s_der = os.path.join(shim_dir, "MOK.der")
+        if os.path.isfile(s_priv) and os.path.isfile(s_pem) and os.access(s_priv, os.R_OK):
+            if not os.path.isfile(s_der):
+                try:
+                    subprocess.run(['openssl', 'x509', '-in', s_pem, '-outform', 'DER', '-out', s_der], check=True)
+                except Exception:
+                    pass
+            if os.path.isfile(s_der):
+                return {"priv": s_priv, "pem": s_pem, "der": s_der}
+
+        # 3. Create key_dir and generate new RSA-2048 X.509 keypair
+        os.makedirs(expanded_dir, exist_ok=True)
+        os.chmod(expanded_dir, 0o700)
+
+        cmd_req = [
+            'openssl', 'req', '-new', '-x509', '-newkey', 'rsa:2048', '-nodes',
+            '-days', '3650', '-outform', 'DER',
+            '-keyout', priv_path, '-out', der_path,
+            '-subj', '/CN=CachyOS Debian User Signing Key/'
+        ]
+        subprocess.run(cmd_req, check=True)
+
+        cmd_pem = ['openssl', 'x509', '-inform', 'DER', '-in', der_path, '-out', pem_path]
+        subprocess.run(cmd_pem, check=True)
+
+        os.chmod(priv_path, 0o600)
+        os.chmod(pem_path, 0o644)
+        os.chmod(der_path, 0o644)
+
+        return {"priv": priv_path, "pem": pem_path, "der": der_path}
+
+    def is_mok_enrolled(self, der_path: str) -> bool:
+        """
+        Runs 'mokutil --test-key <der_path>' to check if this MOK certificate
+        is already enrolled in the UEFI database.
+        Returns True if enrolled, False otherwise.
+        """
+        if not os.path.exists(der_path):
+            return False
+        try:
+            res = subprocess.run(
+                ['mokutil', '--test-key', der_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            output = (res.stdout + res.stderr).lower()
+            return 'is enrolled' in output and 'not enrolled' not in output
+        except Exception:
+            return False
+
+    def enroll_mok_key_gui(self, der_path: str, password: str) -> tuple:
+        """
+        Imports the MOK certificate into mokutil using pkexec and pipes the one-time enrollment password.
+        Returns (True, message) on success, or (False, error_message).
+        """
+        if not os.path.exists(der_path):
+            return False, f"Certificate file not found: {der_path}"
+
+        if len(password) < 8 or len(password) > 16:
+            return False, "Enrollment password must be between 8 and 16 characters."
+
+        cmd = ['pkexec', 'mokutil', '--import', der_path]
+        try:
+            proc = subprocess.run(
+                cmd,
+                input=f"{password}\n{password}\n",
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30
+            )
+            if proc.returncode == 0:
+                return True, (
+                    "MOK key import request successfully submitted to UEFI!\n\n"
+                    "Next Reboot Action Required:\n"
+                    "1. When your computer restarts, the blue 'MOKManagement' screen will appear.\n"
+                    "2. Select 'Enroll MOK' -> 'Continue' -> 'Yes'.\n"
+                    "3. Enter the one-time password you just created.\n"
+                    "Your custom CachyOS kernel will then boot securely."
+                )
+            else:
+                err = proc.stderr.strip() or proc.stdout.strip() or f"Exit code {proc.returncode}"
+                return False, f"Failed to register MOK key: {err}"
+        except Exception as e:
+            return False, f"Failed to execute mokutil via pkexec: {e}"
+
+    def sign_built_deb_packages(self, deb_dir: str, log_callback=None) -> bool:
+        """
+        Extracts each linux-image-*.deb in deb_dir using fakeroot, signs /boot/vmlinuz-* with MOK,
+        verifies the signature with sbverify, and repacks the .deb in-place.
+        """
+        import glob
+        if not os.path.isdir(deb_dir):
+            if log_callback:
+                log_callback(f"[!] Directory not found: {deb_dir}")
+            return False
+
+        for tool in ['sbsign', 'sbverify', 'fakeroot', 'dpkg-deb']:
+            if not shutil.which(tool):
+                msg = f"[!] Required signing tool '{tool}' is missing. Please install sbsigntool and fakeroot."
+                if log_callback:
+                    log_callback(msg)
+                return False
+
+        keys = self.ensure_mok_keys()
+        priv = keys["priv"]
+        pem = keys["pem"]
+
+        deb_patterns = [os.path.join(deb_dir, "linux-image-*.deb")]
+        deb_files = [f for pat in deb_patterns for f in glob.glob(pat) if '-dbg' not in f]
+
+        if not deb_files:
+            if log_callback:
+                log_callback(f"[!] No linux-image-*.deb packages found to sign in {deb_dir}")
+            return False
+
+        if log_callback:
+            log_callback(f"\n=======================================================")
+            log_callback(f"[*] Starting UEFI Secure Boot signing of .deb packages...")
+            log_callback(f"    MOK Key:  {priv}")
+            log_callback(f"    MOK Cert: {pem}")
+            log_callback(f"=======================================================\n")
+
+        signed_count = 0
+        tmp_extract_dir = os.path.join(deb_dir, ".tmp_sign_extract")
+
+        for deb in deb_files:
+            fname = os.path.basename(deb)
+            if log_callback:
+                log_callback(f"[*] Processing package: {fname}...")
+
+            if os.path.exists(tmp_extract_dir):
+                shutil.rmtree(tmp_extract_dir, ignore_errors=True)
+            os.makedirs(tmp_extract_dir, exist_ok=True)
+
+            try:
+                # 1. Extract package preserving permissions
+                if log_callback:
+                    log_callback(f"    • Unpacking payload with fakeroot dpkg-deb -R...")
+                res = subprocess.run(
+                    ['fakeroot', 'dpkg-deb', '-R', deb, tmp_extract_dir],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                if res.returncode != 0:
+                    raise Exception(f"Unpacking failed: {res.stderr.strip() or res.stdout.strip()}")
+
+                # 2. Locate kernel binary inside boot/
+                boot_dir = os.path.join(tmp_extract_dir, "boot")
+                vmlinuz_candidates = glob.glob(os.path.join(boot_dir, "vmlinuz-*"))
+                if not vmlinuz_candidates:
+                    if log_callback:
+                        log_callback(f"    [!] Notice: No /boot/vmlinuz-* found in {fname}; skipping.")
+                    continue
+
+                for vmlinuz in vmlinuz_candidates:
+                    if vmlinuz.endswith(".signed"):
+                        continue
+                    v_base = os.path.basename(vmlinuz)
+                    if log_callback:
+                        log_callback(f"    • Signing kernel binary {v_base} with sbsign...")
+
+                    signed_file = f"{vmlinuz}.signed"
+                    s_res = subprocess.run(
+                        ['sbsign', '--key', priv, '--cert', pem, '--output', signed_file, vmlinuz],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                    )
+                    if s_res.returncode != 0:
+                        raise Exception(f"sbsign failed for {v_base}: {s_res.stderr.strip() or s_res.stdout.strip()}")
+
+                    os.replace(signed_file, vmlinuz)
+
+                    # 3. Verify signature with sbverify
+                    v_res = subprocess.run(
+                        ['sbverify', '--list', vmlinuz],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                    )
+                    if log_callback:
+                        log_callback(f"    • Signature verified: {v_base} is cryptographically signed.")
+
+                # 4. Repack package
+                if log_callback:
+                    log_callback(f"    • Repacking signed package with fakeroot dpkg-deb -b...")
+                repack_res = subprocess.run(
+                    ['fakeroot', 'dpkg-deb', '-b', tmp_extract_dir, deb],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                if repack_res.returncode != 0:
+                    raise Exception(f"Repacking failed: {repack_res.stderr.strip() or repack_res.stdout.strip()}")
+
+                signed_count += 1
+                if log_callback:
+                    log_callback(f"    [✓] Successfully signed and repacked {fname}!\n")
+
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"    [!] Error signing package {fname}: {e}")
+                return False
+            finally:
+                if os.path.exists(tmp_extract_dir):
+                    shutil.rmtree(tmp_extract_dir, ignore_errors=True)
+
+        if log_callback:
+            log_callback(f"[✓] Secure Boot MOK signing completed for {signed_count} .deb package(s)!\n")
+        return True
+
+    def sign_installed_boot_kernel(self, kernel_version: str = None, log_callback=None) -> bool:
+        """
+        Signs /boot/vmlinuz-<kernel_version> directly on the host using pkexec sbsign and updates initramfs.
+        """
+        keys = self.ensure_mok_keys()
+        priv = keys["priv"]
+        pem = keys["pem"]
+
+        if not kernel_version:
+            import glob
+            cachy_kernels = glob.glob("/boot/vmlinuz-*cachyos*")
+            if cachy_kernels:
+                cachy_kernels.sort(key=os.path.getmtime, reverse=True)
+                target_vmlinuz = cachy_kernels[0]
+            else:
+                current = self.get_current_kernel_version()
+                target_vmlinuz = f"/boot/vmlinuz-{current}"
+        else:
+            if kernel_version.startswith("/boot/"):
+                target_vmlinuz = kernel_version
+            elif kernel_version.startswith("vmlinuz-"):
+                target_vmlinuz = f"/boot/{kernel_version}"
+            else:
+                target_vmlinuz = f"/boot/vmlinuz-{kernel_version}"
+
+        if not os.path.isfile(target_vmlinuz):
+            if log_callback:
+                log_callback(f"[-] Target kernel binary not found: {target_vmlinuz}")
+            return False
+
+        kver = os.path.basename(target_vmlinuz).replace("vmlinuz-", "")
+
+        if log_callback:
+            log_callback(f"[*] Signing {target_vmlinuz} via pkexec sbsign...")
+
+        cmd_sign = ['pkexec', 'sbsign', '--key', priv, '--cert', pem, '--output', target_vmlinuz, target_vmlinuz]
+        res = subprocess.run(cmd_sign, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            if log_callback:
+                log_callback(f"[!] pkexec sbsign failed: {res.stderr.strip() or res.stdout.strip()}")
+            return False
+
+        if log_callback:
+            log_callback(f"[✓] Kernel {target_vmlinuz} signed. Updating initramfs via pkexec update-initramfs...")
+
+        cmd_initrd = ['pkexec', 'update-initramfs', '-u', '-k', kver]
+        subprocess.run(cmd_initrd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        if log_callback:
+            log_callback(f"[✓] Initramfs updated for {kver}. Kernel is ready for Secure Boot!")
+        return True
+
+    def sign_kernel_secureboot(self, kernel_version=None, progress_callback=None):
+        """Signs the installed kernel in /boot using MOK for UEFI Secure Boot."""
+        return self.sign_installed_boot_kernel(kernel_version=kernel_version, log_callback=progress_callback)
+
+    def sign_deb_packages(self, deb_dir=None, gpg_key_id=None, progress_callback=None):
+        """Signs the compiled .deb packages using GPG."""
+        candidates = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign-kernel.sh"),
+            "/usr/share/cachy-kernel-updater/sign-kernel.sh",
+            os.path.expanduser("~/Projects/debian-cachy-kernel-updater/sign-kernel.sh")
+        ]
+        script_path = None
+        for p in candidates:
+            if os.path.isfile(p):
+                script_path = p
+                break
+        if not script_path:
+            raise Exception("sign-kernel.sh script not found. Please ensure sign-kernel.sh exists in application directory.")
+
+        target_dir = deb_dir or self.last_output_dir
+        if not target_dir or not os.path.isdir(target_dir):
+            for candidate in [self.get_output_kernel_dir(is_native=True), self.get_output_kernel_dir(is_native=False)]:
+                if os.path.isdir(candidate):
+                    target_dir = candidate
+                    break
+
+        if not target_dir or not os.path.isdir(target_dir):
+            raise Exception("Debian packages directory not found. Please compile the kernel first.")
+
+        cmd = [script_path, "--debs", target_dir]
+        if gpg_key_id:
+            cmd.append(gpg_key_id)
+
+        if progress_callback:
+            progress_callback("\n=======================================================")
+            progress_callback(f"[*] Initiating .deb GPG package signing for: {target_dir}")
+            progress_callback("=======================================================\n")
+        self._run_cmd(cmd, progress_callback=progress_callback)
+        return True
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description="Debian CachyOS Kernel Manager CLI")
+    parser.add_argument('--check', action='store_true', help="Check for latest CachyOS kernel version")
+    parser.add_argument('--status-sb', action='store_true', help="Check UEFI Secure Boot status")
+    parser.add_argument('--install-deps', action='store_true', help="Install required build dependencies")
+    parser.add_argument('--container', action='store_true', help="Use container environment (Podman/Docker)")
+    parser.add_argument('--optimize', action='store_true', help="Optimize kernel compilation for local system (-march=native)")
+    parser.add_argument('--build', action='store_true', help="Download and compile the latest CachyOS kernel")
+    parser.add_argument('--install', action='store_true', help="Install compiled Debian packages")
+    parser.add_argument('--rollback', nargs='?', const='', help="Purge/rollback an installed kernel package")
+    parser.add_argument('--sign-mok', nargs='?', const='', help="Sign kernel for UEFI Secure Boot (MOK)")
+    parser.add_argument('--sign-deb-mok', metavar='DIR', nargs='?', const='', help="Sign kernel inside built .deb packages with MOK")
+    parser.add_argument('--enroll-mok', action='store_true', help="Enroll MOK key into UEFI")
+    parser.add_argument('--sign-debs', nargs='?', const='', help="Sign .deb packages with GPG (specify folder or default)")
+    parser.add_argument('--gpg-key', help="GPG Key ID for signing .deb packages")
+
+    args = parser.parse_args()
+    km = KernelManager()
+
+    def cli_log(msg):
+        print(msg)
+
+    if args.check:
+        print(f"Current kernel: {km.get_current_kernel_version()}")
+        print(f"Latest CachyOS: {km.get_latest_cachy_version()}")
+        print(f"Running latest: {km.is_matching_running_kernel()}")
+    elif args.status_sb:
+        sb = km.get_secure_boot_status()
+        print(f"UEFI Secure Boot: {'ENABLED' if sb else 'DISABLED'}")
+    elif args.install_deps:
+        km.install_build_dependencies(progress_callback=cli_log, use_container=args.container)
+    elif args.build:
+        src = km.download_kernel(progress_callback=cli_log)
+        km.compile_kernel(src, progress_callback=cli_log, use_container=args.container, optimize_for_system=args.optimize)
+    elif args.install:
+        km.install_kernel(progress_callback=cli_log)
+    elif args.rollback is not None:
+        if args.rollback:
+            km.remove_kernel(args.rollback, progress_callback=cli_log)
+        else:
+            print("Installed kernels:", km.get_installed_kernels())
+    elif args.sign_deb_mok is not None:
+        target_dir = args.sign_deb_mok or km.last_output_dir or km.get_output_kernel_dir()
+        km.sign_built_deb_packages(target_dir, log_callback=cli_log)
+    elif args.enroll_mok:
+        keys = km.ensure_mok_keys()
+        der_path = keys["der"]
+        import getpass
+        pwd = getpass.getpass("Enter one-time MOK enrollment password (8-16 chars): ")
+        success, msg = km.enroll_mok_key_gui(der_path, pwd)
+        print(msg)
+    elif args.sign_mok is not None:
+        km.sign_kernel_secureboot(kernel_version=args.sign_mok or None, progress_callback=cli_log)
+    elif args.sign_debs is not None:
+        km.sign_deb_packages(deb_dir=args.sign_debs or None, gpg_key_id=args.gpg_key, progress_callback=cli_log)
+    else:
+        parser.print_help()

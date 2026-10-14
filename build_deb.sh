@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
 PKG_NAME="cachy-kernel-updater"
-PKG_VER="1.0.6"
+PKG_VER="1.0.7"
 DEB_DIR="deb_dist/${PKG_NAME}_${PKG_VER}_all"
 
 echo "=== Cleaning previous deb staging directory ==="
@@ -29,7 +29,7 @@ Section: admin
 Priority: optional
 Architecture: all
 Maintainer: Antonio <antonio@localhost>
-Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, bc, libelf-dev, flex, bison, make, gcc, libssl-dev, rsync, pahole, kmod, cpio, libncurses-dev, libdw-dev
+Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, build-essential, bc, bison, flex, libssl-dev, libelf-dev, libncurses-dev, libdw-dev, libudev-dev, libpci-dev, libiberty-dev, autoconf, dwarves, pahole, zstd, xz-utils, lz4, cpio, rsync, kmod, fakeroot, dpkg-dev, debhelper, devscripts, clang, llvm, lld, sbsigntool, mokutil, openssl
 Recommends: podman | docker.io
 Description: Debian CachyOS Kernel Installer & Updater (GTK4/Adwaita)
  A native GTK4/Libadwaita application to check, compile, install, and
@@ -37,8 +37,9 @@ Description: Debian CachyOS Kernel Installer & Updater (GTK4/Adwaita)
 EOF
 
 echo "=== Copying application files ==="
-cp -v main.py kernel_manager.py Containerfile "${DEB_DIR}/usr/share/cachy-kernel-updater/"
+cp -v main.py kernel_manager.py Containerfile sign-kernel.sh "${DEB_DIR}/usr/share/cachy-kernel-updater/"
 chmod 644 "${DEB_DIR}/usr/share/cachy-kernel-updater/"*
+chmod 755 "${DEB_DIR}/usr/share/cachy-kernel-updater/sign-kernel.sh"
 
 echo "=== Creating launcher binary (/usr/bin/cachy-kernel-updater) ==="
 cat << 'EOF' > "${DEB_DIR}/usr/bin/cachy-kernel-updater"
