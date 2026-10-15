@@ -5,7 +5,7 @@ import shutil
 import urllib.request
 import re
 
-APP_VERSION = "1.10.b"
+APP_VERSION = "1.1.1"
 
 class KernelManager:
     APP_VERSION = APP_VERSION

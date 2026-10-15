@@ -11,7 +11,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Gio
 
 from kernel_manager import KernelManager
 
-APP_VERSION = "1.10.b"
+APP_VERSION = "1.1.1"
 
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):
@@ -569,7 +569,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.on_check_updates_clicked(None)
 
     def on_about_clicked(self, button):
-        """Displays modern Libadwaita About dialog with the new logo and version 1.10.b."""
+        """Displays modern Libadwaita About dialog with the new logo and version 1.1.1."""
         if hasattr(Adw, "AboutDialog"):
             about = Adw.AboutDialog()
             about.set_application_name("Debian CachyOS Kernel Updater")

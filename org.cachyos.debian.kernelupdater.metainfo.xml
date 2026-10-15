@@ -27,9 +27,9 @@
     <binary>cachy-kernel-updater</binary>
   </provides>
   <releases>
-    <release version="1.10.b" date="2026-10-15">
+    <release version="1.1.1" date="2026-10-15">
       <description>
-        <p>Version 1.10.b release:</p>
+        <p>Version 1.1.1 release:</p>
         <ul>
           <li>New vibrant modern CachyOS emblem logo and cohesive teal &amp; crimson branding</li>
           <li>Guided 1-2-3 step workflow with safe cross-system defaults</li>

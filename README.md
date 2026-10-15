@@ -5,7 +5,7 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.10.b-00A896.svg)
+![Version](https://img.shields.io/badge/version-1.1.1-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 <p align="center">
@@ -99,13 +99,13 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.10.b Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.10.b):
+Download the pre-compiled `.deb` package from the [v1.1.1 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.1):
 
-* 📦 **[cachy-kernel-updater_1.10.b_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.10.b/cachy-kernel-updater_1.10.b_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.1_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.1/cachy-kernel-updater_1.1.1_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.10.b_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.1.1_all.deb
 ```
 
 ---
@@ -114,7 +114,7 @@ sudo apt install -y ./cachy-kernel-updater_1.10.b_all.deb
 
 Download and install the standalone `.flatpak` bundle:
 ```bash
-flatpak install --user cachy-kernel-updater_1.10.b.flatpak
+flatpak install --user cachy-kernel-updater_1.1.1.flatpak
 ```
 Or run directly:
 ```bash
@@ -208,13 +208,13 @@ sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-Cachy
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.10.b_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.1_all.deb`.
 
 ### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
 ./build_flatpak.sh
 ```
-This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.10.b.flatpak`.
+This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.1.flatpak`.
 
 ---
 
@@ -263,9 +263,9 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 
 ## 📜 Changelog
 
-### v1.10.b
+### v1.1.1
 - **New Vibrant Emblem Logo & Branding Palette**: Adopted modern low-poly CachyOS "C" rocket emblem with rich crimson (`#D82655`) and vibrant teal (`#00A896`), including matching GTK4/Adwaita custom CSS themes, status badges, and gradient progress bars.
-- **Top System Status Card**: Enhanced top banner with app icon, version badge (`v1.10.b`), and integrated About dialog.
+- **Top System Status Card**: Enhanced top banner with app icon, version badge (`v1.1.1`), and integrated About dialog.
 - **Guided 1-2-3 Step UI Workflow**: Streamlined the user interface into 3 clear cards with safe cross-system defaults pre-selected out-of-the-box (`localmodconfig`, stripped debug symbols, automated `.deb` installation, and post-install UEFI signing).
 - **Dual Package Distribution**: Added standalone Flatpak bundle (`.flatpak`) alongside official Debian package (`.deb`).
 - **Co-Located MOK Certificates**: Generated MOK certificates are stored directly in the kernel build output directory with user permissions.
