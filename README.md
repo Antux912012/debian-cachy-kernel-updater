@@ -5,7 +5,7 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.1.1-00A896.svg)
+![Version](https://img.shields.io/badge/version-1.1.2-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 <p align="center">
@@ -99,13 +99,13 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.1.1 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.1):
+Download the pre-compiled `.deb` package from the [v1.1.2 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.2):
 
-* 📦 **[cachy-kernel-updater_1.1.1_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.1/cachy-kernel-updater_1.1.1_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.2_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.2/cachy-kernel-updater_1.1.2_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.1.1_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.1.2_all.deb
 ```
 
 ---
@@ -114,7 +114,7 @@ sudo apt install -y ./cachy-kernel-updater_1.1.1_all.deb
 
 Download and install the standalone `.flatpak` bundle:
 ```bash
-flatpak install --user cachy-kernel-updater_1.1.1.flatpak
+flatpak install --user cachy-kernel-updater_1.1.2.flatpak
 ```
 Or run directly:
 ```bash
@@ -208,13 +208,13 @@ sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-Cachy
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.1_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.2_all.deb`.
 
 ### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
 ./build_flatpak.sh
 ```
-This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.1.flatpak`.
+This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.2.flatpak`.
 
 ---
 
@@ -262,6 +262,15 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 ---
 
 ## 📜 Changelog
+
+### v1.1.2
+- **Fixed Missing Wi-Fi & Bluetooth Drivers (Safety Baseline Overhaul)**: Resolved issue where `make localmodconfig` stripped Wi-Fi and Bluetooth drivers and crypto algorithms that were not actively loaded into memory at compile-time.
+- **Mandatory Wireless Cryptography Support**: Enforced kernel configs for `CONFIG_CRYPTO_CMAC`, `CONFIG_CRYPTO_USER_API_HASH`, `CONFIG_CRYPTO_AES_NI_INTEL`, `CONFIG_CRYPTO_USER_API_SKCIPHER`, and related crypto ciphers, fixing daemon crashes with modern connection managers (`iwd`, `wpa_supplicant`, WPA2/WPA3-SAE, 802.11w/PMF).
+- **Comprehensive Bluetooth Subsystem**: Enforced `CONFIG_BT_HIDP` (Bluetooth Human Interface Devices / input), `CONFIG_BT_HCIUART` (laptop serial UART Bluetooth), `CONFIG_BT_HCIBTUSB`, and vendor drivers (`CONFIG_BT_INTEL`, `BCM`, `RTL`, `MTK`).
+- **Universal Wi-Fi Driver Preservation**: Enforced kernel modules for major Wi-Fi families (Intel `iwlwifi`/`iwlmvm`/`iwldvm`, Realtek `rtw88`/`rtw89`/`rtl8xxxu`, Qualcomm/Atheros `ath9k`/`ath10k`/`ath11k`/`ath12k`, MediaTek `mt76`/`mt7921`/`mt7925`, and Broadcom `brcmfmac`).
+- **Seeded `host_lsmod.txt` Generation**: Seeded the `lsmod` snapshot with essential network, Bluetooth, and crypto modules so `streamline_config.pl` never removes dormant, unassociated, or rfkill-blocked wireless controllers.
+- **Hardware Detection Reporting**: Added automatic detection and live reporting of system Wi-Fi adapters and Bluetooth controllers.
+- **Updated Package Releases & APT Repository**: Bumped version to `1.1.2`, generated new Debian and Flatpak packages, and updated APT repository metadata.
 
 ### v1.1.1
 - **New Vibrant Emblem Logo & Branding Palette**: Adopted modern low-poly CachyOS "C" rocket emblem with rich crimson (`#D82655`) and vibrant teal (`#00A896`), including matching GTK4/Adwaita custom CSS themes, status badges, and gradient progress bars.

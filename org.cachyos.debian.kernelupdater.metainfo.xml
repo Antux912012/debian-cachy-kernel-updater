@@ -27,6 +27,18 @@
     <binary>cachy-kernel-updater</binary>
   </provides>
   <releases>
+    <release version="1.1.2" date="2026-10-15">
+      <description>
+        <p>Version 1.1.2 release:</p>
+        <ul>
+          <li>Fixed missing Wi-Fi and Bluetooth drivers during kernel compilation (localmodconfig driver trimming)</li>
+          <li>Enforced comprehensive Wi-Fi, Bluetooth, and AF_ALG/crypto driver safety baselines (Intel, Realtek, Qualcomm/Atheros, MediaTek, Broadcom, BT_HIDP, BT_HCIUART, CMAC, AES, SHA)</li>
+          <li>Seeded host lsmod module list so streamline_config never drops dormant or unassociated wireless/Bluetooth controllers</li>
+          <li>Added hardware detection reporting for Wi-Fi and Bluetooth adapters</li>
+          <li>Updated APT repository and packaging metadata</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-10-15">
       <description>
         <p>Version 1.1.1 release:</p>

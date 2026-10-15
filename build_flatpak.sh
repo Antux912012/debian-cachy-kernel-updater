@@ -5,7 +5,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
 APP_ID="org.cachyos.debian.kernelupdater"
-VERSION="1.1.1"
+VERSION="1.1.2"
 BUILD_DIR="flatpak_build"
 REPO_DIR="flatpak_repo"
 BUNDLE_DIR="deb_dist"

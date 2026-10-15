@@ -11,7 +11,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Gio
 
 from kernel_manager import KernelManager
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):
@@ -212,11 +212,11 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         # 1. Use Current System Hardware Config (localmodconfig / Host .config base)
         self.hw_config_row = Adw.ActionRow()
         self.hw_config_row.set_title("Use Current System Hardware Config (localmodconfig)")
-        self.hw_config_row.set_subtitle("Ensures all hardware drivers required by your machine are included.")
-        self.hw_config_row.set_tooltip_text("Scans active hardware drivers from the running system and includes them, while ensuring storage and filesystem drivers are always built-in.")
+        self.hw_config_row.set_subtitle("Tailors drivers to machine while preserving Wi-Fi, Bluetooth, storage & filesystem baselines.")
+        self.hw_config_row.set_tooltip_text("Scans active hardware drivers from the running system and trims unused drivers, while ensuring Wi-Fi, Bluetooth, crypto, storage, and filesystem drivers are always preserved.")
         self.hw_config_check = Gtk.CheckButton()
         self.hw_config_check.set_active(True)
-        self.hw_config_check.set_tooltip_text("Scans active hardware drivers from the running system and includes them, while ensuring storage and filesystem drivers are always built-in.")
+        self.hw_config_check.set_tooltip_text("Scans active hardware drivers from the running system and trims unused drivers, while ensuring Wi-Fi, Bluetooth, crypto, storage, and filesystem drivers are always preserved.")
         self.hw_config_row.add_prefix(self.hw_config_check)
         self.hw_config_row.set_activatable_widget(self.hw_config_check)
         self.step2_group.add(self.hw_config_row)
@@ -569,7 +569,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.on_check_updates_clicked(None)
 
     def on_about_clicked(self, button):
-        """Displays modern Libadwaita About dialog with the new logo and version 1.1.1."""
+        """Displays modern Libadwaita About dialog with the new logo and version."""
         if hasattr(Adw, "AboutDialog"):
             about = Adw.AboutDialog()
             about.set_application_name("Debian CachyOS Kernel Updater")

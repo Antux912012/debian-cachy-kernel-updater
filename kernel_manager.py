@@ -5,7 +5,7 @@ import shutil
 import urllib.request
 import re
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 class KernelManager:
     APP_VERSION = APP_VERSION
@@ -147,6 +147,34 @@ class KernelManager:
                 if parts:
                     modules.append(parts[0])
             info['loaded_modules'] = modules
+        except Exception:
+            pass
+
+        # 6. Wi-Fi adapter detection
+        info['wifi_adapter'] = None
+        try:
+            lspci_out = subprocess.check_output(['lspci'], text=True)
+            for line in lspci_out.splitlines():
+                if any(w in line.lower() for w in ['wireless', 'wi-fi', 'network controller', '802.11']):
+                    parts = line.split(':', 2)
+                    info['wifi_adapter'] = parts[2].strip() if len(parts) >= 3 else line.strip()
+                    break
+        except Exception:
+            pass
+
+        # 7. Bluetooth adapter detection
+        info['bluetooth_adapter'] = None
+        try:
+            lsusb_out = subprocess.check_output(['lsusb'], text=True)
+            for line in lsusb_out.splitlines():
+                if 'bluetooth' in line.lower():
+                    parts = line.split(':', 2)
+                    info['bluetooth_adapter'] = parts[2].strip() if len(parts) >= 3 else line.strip()
+                    break
+            if not info['bluetooth_adapter'] and os.path.exists('/sys/class/bluetooth'):
+                bt_nodes = os.listdir('/sys/class/bluetooth')
+                if bt_nodes:
+                    info['bluetooth_adapter'] = f"Bluetooth Adapter ({', '.join(bt_nodes)})"
         except Exception:
             pass
 
@@ -952,17 +980,57 @@ WORKDIR /workspace
                 if hw['manufacturer'] != 'Generic':
                     progress_callback(f"    • Machine: {hw['manufacturer']} {hw['product_name']}")
                 progress_callback(f"    • Root Filesystem: {hw['root_fs']}")
+                if hw.get('wifi_adapter'):
+                    progress_callback(f"    • Wi-Fi Adapter: {hw['wifi_adapter']}")
+                if hw.get('bluetooth_adapter'):
+                    progress_callback(f"    • Bluetooth: {hw['bluetooth_adapter']}")
                 progress_callback(f"    • Active Modules: {len(hw['loaded_modules'])} loaded hardware drivers detected")
                 progress_callback("=======================================================\n")
 
             lsmod_host_file = os.path.join(self.download_dir, "host_lsmod.txt")
             try:
                 lsmod_raw = subprocess.check_output(['lsmod'], text=True)
-                with open(lsmod_host_file, "w") as f:
-                    f.write(lsmod_raw)
             except Exception as e:
+                lsmod_raw = "Module                  Size  Used by\n"
                 if progress_callback:
                     progress_callback(f"[!] Warning: failed to export host lsmod: {e}")
+
+            # Seed essential modules so streamline_config never drops Wi-Fi, Bluetooth, Crypto, or Storage
+            essential_seed_modules = [
+                # Wi-Fi stack & common drivers
+                'cfg80211', 'mac80211', 'rfkill',
+                'iwlwifi', 'iwlmvm', 'iwldvm',
+                'rtw88_core', 'rtw88_pci', 'rtw88_8822ce', 'rtw88_8821ce', 'rtw88_8723de',
+                'rtw89_core', 'rtw89_pci', 'rtw89_8852ae', 'rtw89_8852be', 'rtw89_8852ce',
+                'ath9k', 'ath10k_core', 'ath10k_pci', 'ath11k', 'ath11k_pci',
+                'mt76', 'mt7921e', 'mt7921_common', 'brcmfmac', 'brcmutil',
+                # Bluetooth stack & drivers
+                'bluetooth', 'btusb', 'btrtl', 'btbcm', 'btintel', 'btmtk', 'hci_uart', 'hidp', 'bnep', 'rfcomm',
+                # Cryptography (Mandatory for iwd, wpa_supplicant, WPA2/WPA3 & Bluetooth)
+                'cmac', 'ccm', 'gcm', 'ctr', 'cbc', 'ecb', 'sha256', 'sha512', 'sha1',
+                'aes_generic', 'aesni_intel', 'crypto_user', 'af_alg', 'algif_hash', 'algif_skcipher', 'algif_aead', 'algif_rng',
+                'ecdh_generic', 'ecc', 'crc16', 'arc4', 'michael_mic',
+                # Core storage & input
+                'nvme', 'nvme_core', 'ahci', 'libahci', 'sd_mod', 'usb_storage', 'uas',
+                'hid', 'usbhid', 'hid_generic', 'ext4', 'btrfs', 'vfat', 'fat'
+            ]
+            existing_mods = set()
+            for line in lsmod_raw.splitlines()[1:]:
+                p = line.split()
+                if p:
+                    existing_mods.add(p[0])
+
+            lsmod_lines = [lsmod_raw.rstrip()]
+            for em in essential_seed_modules:
+                if em not in existing_mods:
+                    lsmod_lines.append(f"{em} 16384 0")
+
+            try:
+                with open(lsmod_host_file, "w") as f:
+                    f.write("\n".join(lsmod_lines) + "\n")
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"[!] Warning: failed to write seeded lsmod: {e}")
 
             if progress_callback:
                 progress_callback("[*] Applying 'make localmodconfig' to match machine hardware...")
@@ -986,51 +1054,216 @@ WORKDIR /workspace
                 if progress_callback:
                     progress_callback(f"[!] Warning: localmodconfig note: {e}")
 
-            if progress_callback:
-                progress_callback("[*] Enforcing hardware safety baselines for storage and filesystems...")
+        # Always enforce safety baselines for Storage, Filesystem, Input, RFKILL, Wi-Fi, Bluetooth & Crypto
+        if progress_callback:
+            progress_callback("[*] Enforcing hardware safety baselines for Wi-Fi, Bluetooth, crypto, storage, and filesystems...")
 
-            safeties = [
-                # Essential filesystems
-                ('enable', 'CONFIG_EXT4_FS'),
-                ('module', 'CONFIG_BTRFS_FS'),
-                ('enable', 'CONFIG_VFAT_FS'),
-                ('enable', 'CONFIG_FAT_FS'),
-                ('module', 'CONFIG_EXFAT_FS'),
-                ('module', 'CONFIG_NTFS3_FS'),
-                # Essential storage
-                ('enable', 'CONFIG_BLK_DEV_SD'),
-                ('enable', 'CONFIG_BLK_DEV_NVME'),
-                ('enable', 'CONFIG_NVME_CORE'),
-                ('enable', 'CONFIG_ATA'),
-                ('enable', 'CONFIG_SATA_AHCI'),
-                ('enable', 'CONFIG_USB_STORAGE'),
-                ('module', 'CONFIG_USB_UAS'),
-                # Essential input
-                ('enable', 'CONFIG_HID'),
-                ('enable', 'CONFIG_HID_GENERIC'),
-                ('enable', 'CONFIG_USB_HID'),
-            ]
+        safeties = [
+            # Essential filesystems
+            ('enable', 'CONFIG_EXT4_FS'),
+            ('module', 'CONFIG_BTRFS_FS'),
+            ('enable', 'CONFIG_VFAT_FS'),
+            ('enable', 'CONFIG_FAT_FS'),
+            ('module', 'CONFIG_EXFAT_FS'),
+            ('module', 'CONFIG_NTFS3_FS'),
+            # Essential storage
+            ('enable', 'CONFIG_BLK_DEV_SD'),
+            ('enable', 'CONFIG_BLK_DEV_NVME'),
+            ('enable', 'CONFIG_NVME_CORE'),
+            ('enable', 'CONFIG_ATA'),
+            ('enable', 'CONFIG_SATA_AHCI'),
+            ('enable', 'CONFIG_USB_STORAGE'),
+            ('module', 'CONFIG_USB_UAS'),
+            # Essential input
+            ('enable', 'CONFIG_HID'),
+            ('enable', 'CONFIG_HID_GENERIC'),
+            ('enable', 'CONFIG_USB_HID'),
+            ('enable', 'CONFIG_INPUT_EVDEV'),
 
-            # Laptop / Chassis tuning
-            if hw['is_laptop']:
-                safeties.extend([
-                    ('enable', 'CONFIG_CPU_FREQ_GOV_POWERSAVE'),
-                    ('enable', 'CONFIG_NO_HZ_IDLE'),
-                ])
+            # RFKILL & Wireless Core
+            ('enable', 'CONFIG_RFKILL'),
+            ('enable', 'CONFIG_RFKILL_LEDS'),
+            ('enable', 'CONFIG_RFKILL_INPUT'),
+            ('enable', 'CONFIG_WIRELESS'),
+            ('module', 'CONFIG_CFG80211'),
+            ('enable', 'CONFIG_CFG80211_DEFAULT_PS'),
+            ('enable', 'CONFIG_CFG80211_CRDA_SUPPORT'),
+            ('enable', 'CONFIG_CFG80211_WEXT'),
+            ('module', 'CONFIG_MAC80211'),
+            ('enable', 'CONFIG_MAC80211_HAS_RC'),
+            ('enable', 'CONFIG_MAC80211_RC_MINSTREL'),
+            ('enable', 'CONFIG_MAC80211_RC_DEFAULT_MINSTREL'),
+            ('set-str', 'CONFIG_MAC80211_RC_DEFAULT', 'minstrel_ht'),
+            ('enable', 'CONFIG_MAC80211_MESH'),
+            ('enable', 'CONFIG_MAC80211_LEDS'),
 
-            # Manufacturer-specific ACPI modules
-            mfg = hw['manufacturer'].lower()
-            if 'lenovo' in mfg or 'thinkpad' in hw['product_name'].lower():
-                safeties.append(('module', 'CONFIG_THINKPAD_ACPI'))
-            elif 'dell' in mfg:
-                safeties.append(('module', 'CONFIG_DELL_WMI'))
-            elif 'asus' in mfg:
-                safeties.append(('module', 'CONFIG_ASUS_WMI'))
+            # Wireless & Bluetooth Cryptography (Mandatory for iwd, wpa_supplicant, WPA2/WPA3-SAE, 802.11w/PMF, BlueZ)
+            ('enable', 'CONFIG_CRYPTO_AES'),
+            ('module', 'CONFIG_CRYPTO_AES_NI_INTEL'),
+            ('module', 'CONFIG_CRYPTO_AES_X86_64'),
+            ('module', 'CONFIG_CRYPTO_CMAC'),
+            ('module', 'CONFIG_CRYPTO_HMAC'),
+            ('enable', 'CONFIG_CRYPTO_SHA256'),
+            ('enable', 'CONFIG_CRYPTO_SHA512'),
+            ('enable', 'CONFIG_CRYPTO_SHA1'),
+            ('module', 'CONFIG_CRYPTO_CCM'),
+            ('module', 'CONFIG_CRYPTO_GCM'),
+            ('module', 'CONFIG_CRYPTO_CBC'),
+            ('module', 'CONFIG_CRYPTO_CTR'),
+            ('module', 'CONFIG_CRYPTO_ECB'),
+            ('module', 'CONFIG_CRYPTO_MICHAEL_MIC'),
+            ('module', 'CONFIG_CRYPTO_ARC4'),
+            ('module', 'CONFIG_CRYPTO_LIB_ARC4'),
+            ('enable', 'CONFIG_CRYPTO_LIB_AES'),
+            ('module', 'CONFIG_CRYPTO_LIB_GF128MUL'),
+            ('module', 'CONFIG_CRYPTO_ECDH'),
+            ('module', 'CONFIG_CRYPTO_ECC'),
+            ('module', 'CONFIG_CRYPTO_USER_API'),
+            ('module', 'CONFIG_CRYPTO_USER_API_HASH'),
+            ('module', 'CONFIG_CRYPTO_USER_API_SKCIPHER'),
+            ('module', 'CONFIG_CRYPTO_USER_API_AEAD'),
+            ('module', 'CONFIG_CRYPTO_USER_API_RNG'),
+            ('enable', 'CONFIG_KEY_DH_OPERATIONS'),
 
-            for action, opt in safeties:
+            # Bluetooth Subsystem & Drivers
+            ('module', 'CONFIG_BT'),
+            ('enable', 'CONFIG_BT_BREDR'),
+            ('module', 'CONFIG_BT_RFCOMM'),
+            ('enable', 'CONFIG_BT_RFCOMM_TTY'),
+            ('module', 'CONFIG_BT_BNEP'),
+            ('enable', 'CONFIG_BT_BNEP_MC_FILTER'),
+            ('enable', 'CONFIG_BT_BNEP_PROTO_FILTER'),
+            ('module', 'CONFIG_BT_HIDP'),
+            ('enable', 'CONFIG_BT_LE'),
+            ('enable', 'CONFIG_BT_LEDS'),
+            ('module', 'CONFIG_BT_HCIBTUSB'),
+            ('enable', 'CONFIG_BT_HCIBTUSB_AUTOSUSPEND'),
+            ('enable', 'CONFIG_BT_HCIBTUSB_BCM'),
+            ('enable', 'CONFIG_BT_HCIBTUSB_MTK'),
+            ('enable', 'CONFIG_BT_HCIBTUSB_RTL'),
+            ('module', 'CONFIG_BT_HCIUART'),
+            ('enable', 'CONFIG_BT_HCIUART_H4'),
+            ('enable', 'CONFIG_BT_HCIUART_BCSP'),
+            ('enable', 'CONFIG_BT_HCIUART_ATH3K'),
+            ('enable', 'CONFIG_BT_HCIUART_LL'),
+            ('enable', 'CONFIG_BT_HCIUART_3WIRE'),
+            ('enable', 'CONFIG_BT_HCIUART_INTEL'),
+            ('enable', 'CONFIG_BT_HCIUART_BCM'),
+            ('enable', 'CONFIG_BT_HCIUART_QCA'),
+            ('enable', 'CONFIG_BT_HCIUART_AG6XX'),
+            ('enable', 'CONFIG_BT_HCIUART_MRVL'),
+            ('enable', 'CONFIG_BT_HCIUART_RTL'),
+            ('enable', 'CONFIG_BT_HCIUART_SERDEV'),
+            ('module', 'CONFIG_BT_INTEL'),
+            ('module', 'CONFIG_BT_INTEL_PCIE'),
+            ('module', 'CONFIG_BT_BCM'),
+            ('module', 'CONFIG_BT_RTL'),
+            ('module', 'CONFIG_BT_MTK'),
+            ('module', 'CONFIG_BT_MTKUART'),
+            ('module', 'CONFIG_BT_QCA'),
+            ('module', 'CONFIG_BT_ATH3K'),
+            ('module', 'CONFIG_BT_MRVL'),
+            ('module', 'CONFIG_BT_MRVL_SDIO'),
+            ('module', 'CONFIG_BT_HCIVHCI'),
+
+            # Wi-Fi Drivers: Major Vendor Families
+            # Intel Wi-Fi
+            ('enable', 'CONFIG_WLAN_VENDOR_INTEL'),
+            ('module', 'CONFIG_IWLWIFI'),
+            ('enable', 'CONFIG_IWLWIFI_LEDS'),
+            ('module', 'CONFIG_IWLMVM'),
+            ('module', 'CONFIG_IWLDVM'),
+            ('enable', 'CONFIG_IWLWIFI_OPMODE_MODULAR'),
+            # Realtek Wi-Fi
+            ('enable', 'CONFIG_WLAN_VENDOR_REALTEK'),
+            ('module', 'CONFIG_RTL_CARDS'),
+            ('module', 'CONFIG_RTL8XXXU'),
+            ('module', 'CONFIG_RTW88'),
+            ('module', 'CONFIG_RTW88_CORE'),
+            ('module', 'CONFIG_RTW88_PCI'),
+            ('module', 'CONFIG_RTW88_USB'),
+            ('module', 'CONFIG_RTW88_8822BE'),
+            ('module', 'CONFIG_RTW88_8822CE'),
+            ('module', 'CONFIG_RTW88_8723DE'),
+            ('module', 'CONFIG_RTW88_8821CE'),
+            ('module', 'CONFIG_RTW88_8822BU'),
+            ('module', 'CONFIG_RTW88_8822CU'),
+            ('module', 'CONFIG_RTW88_8723DU'),
+            ('module', 'CONFIG_RTW88_8821CU'),
+            ('module', 'CONFIG_RTW89'),
+            ('module', 'CONFIG_RTW89_CORE'),
+            ('module', 'CONFIG_RTW89_PCI'),
+            ('module', 'CONFIG_RTW89_8852AE'),
+            ('module', 'CONFIG_RTW89_8852BE'),
+            ('module', 'CONFIG_RTW89_8852CE'),
+            ('module', 'CONFIG_RTW89_8922AE'),
+            # Qualcomm / Atheros Wi-Fi
+            ('enable', 'CONFIG_WLAN_VENDOR_ATH'),
+            ('module', 'CONFIG_ATH9K'),
+            ('enable', 'CONFIG_ATH9K_PCI'),
+            ('module', 'CONFIG_ATH9K_HTC'),
+            ('module', 'CONFIG_ATH10K'),
+            ('module', 'CONFIG_ATH10K_PCI'),
+            ('module', 'CONFIG_ATH11K'),
+            ('module', 'CONFIG_ATH11K_PCI'),
+            ('module', 'CONFIG_ATH12K'),
+            # MediaTek Wi-Fi
+            ('enable', 'CONFIG_WLAN_VENDOR_MEDIATEK'),
+            ('module', 'CONFIG_MT76_CORE'),
+            ('module', 'CONFIG_MT76_USB'),
+            ('module', 'CONFIG_MT76_SDIO'),
+            ('module', 'CONFIG_MT76x0U'),
+            ('module', 'CONFIG_MT76x2E'),
+            ('module', 'CONFIG_MT76x2U'),
+            ('module', 'CONFIG_MT7603E'),
+            ('module', 'CONFIG_MT7615E'),
+            ('module', 'CONFIG_MT7663U'),
+            ('module', 'CONFIG_MT7663S'),
+            ('module', 'CONFIG_MT7915E'),
+            ('module', 'CONFIG_MT7921E'),
+            ('module', 'CONFIG_MT7921U'),
+            ('module', 'CONFIG_MT7921S'),
+            ('module', 'CONFIG_MT7925E'),
+            ('module', 'CONFIG_MT7925U'),
+            # Broadcom Wi-Fi
+            ('enable', 'CONFIG_WLAN_VENDOR_BROADCOM'),
+            ('module', 'CONFIG_BRCMUTIL'),
+            ('module', 'CONFIG_BRCMSMAC'),
+            ('module', 'CONFIG_BRCMFMAC'),
+            ('enable', 'CONFIG_BRCMFMAC_PROTO_BCDC'),
+            ('enable', 'CONFIG_BRCMFMAC_SDIO'),
+            ('enable', 'CONFIG_BRCMFMAC_USB'),
+            ('enable', 'CONFIG_BRCMFMAC_PCIE'),
+            ('module', 'CONFIG_B43'),
+        ]
+
+        # Laptop / Chassis tuning
+        if hw['is_laptop']:
+            safeties.extend([
+                ('enable', 'CONFIG_CPU_FREQ_GOV_POWERSAVE'),
+                ('enable', 'CONFIG_NO_HZ_IDLE'),
+            ])
+
+        # Manufacturer-specific ACPI modules
+        mfg = hw['manufacturer'].lower()
+        if 'lenovo' in mfg or 'thinkpad' in hw['product_name'].lower():
+            safeties.append(('module', 'CONFIG_THINKPAD_ACPI'))
+        elif 'dell' in mfg:
+            safeties.append(('module', 'CONFIG_DELL_WMI'))
+        elif 'asus' in mfg:
+            safeties.append(('module', 'CONFIG_ASUS_WMI'))
+
+        for item in safeties:
+            if len(item) == 2:
+                action, opt = item
                 flag = f'--{action}'
                 self._run_cmd(['scripts/config', flag, opt], cwd=kernel_dir, progress_callback=None)
+            elif len(item) == 3:
+                action, opt, val = item
+                flag = f'--{action}'
+                self._run_cmd(['scripts/config', flag, opt, str(val)], cwd=kernel_dir, progress_callback=None)
 
+        if use_localmodconfig:
             nr_cpus = max(16, min(128, hw['threads'] * 2))
             self._run_cmd(['scripts/config', '--set-val', 'CONFIG_NR_CPUS', str(nr_cpus)], cwd=kernel_dir, progress_callback=None)
 

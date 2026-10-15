@@ -4,6 +4,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
+VERSION="${VERSION:-1.1.2}"
 KEY_ID="620D1EA9AC45150575E70825BEE28F80428556CF"
 REPO_URL="https://antux912012.github.io/debian-cachy-kernel-updater"
 REPO_DIR="/tmp/cachyos-apt-repo-staging"
@@ -15,12 +16,12 @@ mkdir -p "$REPO_DIR/dists/stable/main/binary-all"
 mkdir -p "$REPO_DIR/dists/stable/main/binary-amd64"
 
 echo "=== 2. Copying .deb and .flatpak packages ==="
-if [ ! -f "deb_dist/cachy-kernel-updater_1.1.1_all.deb" ]; then
+if [ ! -f "deb_dist/cachy-kernel-updater_${VERSION}_all.deb" ]; then
     echo "deb_dist package not found, building..."
     ./build_deb.sh
 fi
 
-if [ ! -f "deb_dist/cachy-kernel-updater_1.1.1.flatpak" ]; then
+if [ ! -f "deb_dist/cachy-kernel-updater_${VERSION}.flatpak" ]; then
     echo "flatpak bundle not found, building..."
     ./build_flatpak.sh
 fi
@@ -190,11 +191,11 @@ sudo apt install cachy-kernel-updater</code></pre>
     </div>
 
     <div class="card">
-      <h2>📦 Direct Package Downloads (v1.1.1)</h2>
+      <h2>📦 Direct Package Downloads (v${VERSION})</h2>
       <p>Direct download links for the latest stable build:</p>
       <p>
-        <a class="btn-download" href="pool/main/c/cachy-kernel-updater/cachy-kernel-updater_1.1.1_all.deb">📦 Download Debian Package (.deb)</a>
-        <a class="btn-download" href="cachy-kernel-updater_1.1.1.flatpak">📦 Download Flatpak Bundle (.flatpak)</a>
+        <a class="btn-download" href="pool/main/c/cachy-kernel-updater/cachy-kernel-updater_${VERSION}_all.deb">📦 Download Debian Package (.deb)</a>
+        <a class="btn-download" href="cachy-kernel-updater_${VERSION}.flatpak">📦 Download Flatpak Bundle (.flatpak)</a>
       </p>
       <ul>
         <li><a href="KEY.asc">Repository GPG Public Key (ASCII Armored)</a></li>
@@ -236,7 +237,7 @@ if [ "$1" = "--deploy" ] || [ "$1" = "-d" ]; then
     git config user.name "Antonio"
     git config user.email "antux912012@users.noreply.github.com"
     git add -A
-    git commit -m "Update APT & Flatpak repository to v1.1.1" || echo "No changes to commit"
+    git commit -m "Update APT & Flatpak repository to v${VERSION}" || echo "No changes to commit"
     git push "$REMOTE_URL" gh-pages
     rm -rf "$DEPLOY_TMP"
     echo "=== Successfully published to GitHub Pages! ==="
