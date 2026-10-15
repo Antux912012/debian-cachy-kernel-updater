@@ -222,13 +222,13 @@ ls -la "$REPO_DIR"
 
 if [ "$1" = "--deploy" ] || [ "$1" = "-d" ]; then
     echo "=== 10. Deploying APT repository to gh-pages branch ==="
-    REMOTE_URL="$(git config --get remote.origin.url)"
+    REMOTE_URL="$(git -C "$DIR" config --get remote.origin.url 2>/dev/null || echo "https://github.com/Antux912012/debian-cachy-kernel-updater.git")"
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         REMOTE_URL="https://${GITHUB_TOKEN}@github.com/Antux912012/debian-cachy-kernel-updater.git"
     fi
     DEPLOY_TMP="/tmp/gh-pages-deploy-$$"
     rm -rf "$DEPLOY_TMP"
-    git clone "$REMOTE_URL" "$DEPLOY_TMP"
+    git clone --branch gh-pages --single-branch "$REMOTE_URL" "$DEPLOY_TMP" || git clone "$REMOTE_URL" "$DEPLOY_TMP"
     cd "$DEPLOY_TMP"
     git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
     git rm -rf . >/dev/null 2>&1 || true
