@@ -5,10 +5,10 @@ Maintainer: Antonio <antonio@localhost>
 Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, build-essential, bc, bison, flex, libssl-dev, libelf-dev, libncurses-dev, libdw-dev, libudev-dev, libpci-dev, libiberty-dev, autoconf, dwarves, pahole, zstd, xz-utils, lz4, cpio, rsync, kmod, fakeroot, dpkg-dev, debhelper, devscripts, clang, llvm, lld, sbsigntool, mokutil, openssl, linux-base, initramfs-tools
 Recommends: podman | docker.io
 Filename: pool/main/c/cachy-kernel-updater/cachy-kernel-updater_1.1.2_all.deb
-Size: 2513972
-MD5sum: 19ea33b23f47608a1d35087645e26ef3
-SHA1: c11f78ed6807400edba8af76e19e882bbc47b7e5
-SHA256: 61f90d3f5f6c10d3d9e58172b8700e8e8840741c99ccbae21781a8e53fca4b64
+Size: 2514284
+MD5sum: 3fd069cde0579e4b72b59ed6299a44da
+SHA1: 338590e5bd1ab1f4df85b3b0e09b1eae187b00ed
+SHA256: 85efa91388c5528cc07d0ec7b97300f6a411ffa5c84a446171dededda8d90e72
 Section: admin
 Priority: optional
 Description: Debian CachyOS Kernel Installer & Updater (GTK4/Adwaita)
