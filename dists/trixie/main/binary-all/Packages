@@ -1,14 +1,14 @@
 Package: cachy-kernel-updater
-Version: 1.0.7
+Version: 1.1.1
 Architecture: all
 Maintainer: Antonio <antonio@localhost>
-Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, build-essential, bc, bison, flex, libssl-dev, libelf-dev, libncurses-dev, libdw-dev, libudev-dev, libpci-dev, libiberty-dev, autoconf, dwarves, pahole, zstd, xz-utils, lz4, cpio, rsync, kmod, fakeroot, dpkg-dev, debhelper, devscripts, clang, llvm, lld, sbsigntool, mokutil, openssl
+Depends: python3 (>= 3.10), python3-gi, python3-gi-cairo, python3-requests, gir1.2-gtk-4.0, gir1.2-adw-1, policykit-1 | polkitd, build-essential, bc, bison, flex, libssl-dev, libelf-dev, libncurses-dev, libdw-dev, libudev-dev, libpci-dev, libiberty-dev, autoconf, dwarves, pahole, zstd, xz-utils, lz4, cpio, rsync, kmod, fakeroot, dpkg-dev, debhelper, devscripts, clang, llvm, lld, sbsigntool, mokutil, openssl, linux-base, initramfs-tools
 Recommends: podman | docker.io
-Filename: pool/main/c/cachy-kernel-updater/cachy-kernel-updater_1.0.7_all.deb
-Size: 587556
-MD5sum: 6b29c225d508b86142e7ed2966887d74
-SHA1: 7f7f51224131d968dbdf54d1a467c0204e5890a8
-SHA256: a67745dcc067eca78faa0ab3093e380c66042a2555fca0e2a4f18d8f8d5f0414
+Filename: pool/main/c/cachy-kernel-updater/cachy-kernel-updater_1.1.1_all.deb
+Size: 2511988
+MD5sum: b86d101648191fe0f1771d7d46dffaef
+SHA1: a45b4411140e2aa4807e1bd6f8739a6c77e5d309
+SHA256: 10b9b5c4a759d587aef72c0e712c0f12c9083d5ecee90d0b675ec3c590355db9
 Section: admin
 Priority: optional
 Description: Debian CachyOS Kernel Installer & Updater (GTK4/Adwaita)
