@@ -844,13 +844,14 @@ WORKDIR /workspace
 
         config_dst = os.path.join(kernel_dir, ".config")
 
-        # Recover saved config if available, otherwise use running CachyOS kernel or downloaded official config
+        # Recover saved config if available, otherwise use running CachyOS kernel or downloaded official config.
+        # When building in container (Docker/Podman), always use the official CachyOS base config to build for ALL hardware.
         active_saved_cfg = self.saved_native_config_path if is_native else self.saved_config_path
-        if os.path.exists(active_saved_cfg) and os.path.getsize(active_saved_cfg) > 1000:
+        if not use_container and os.path.exists(active_saved_cfg) and os.path.getsize(active_saved_cfg) > 1000:
             if progress_callback:
                 progress_callback(f"[✓] Recovering previously saved kernel configuration from {active_saved_cfg}...")
             shutil.copy(active_saved_cfg, config_dst)
-        else:
+        elif not use_container:
             current_kernel = self.get_current_kernel_version()
             boot_cfg = f"/boot/config-{current_kernel}"
             if os.path.isfile(boot_cfg) and 'cachy' in current_kernel:
@@ -865,6 +866,14 @@ WORKDIR /workspace
                     shutil.copy(config_src, config_dst)
                 else:
                     urllib.request.urlretrieve(self.cachy_config_raw, config_dst)
+        else:
+            if progress_callback:
+                progress_callback("[*] Container build (Docker/Podman): Applying official CachyOS base kernel configuration with full generic driver support for all hardware...")
+            config_src = os.path.join(self.download_dir, "config")
+            if os.path.exists(config_src):
+                shutil.copy(config_src, config_dst)
+            else:
+                urllib.request.urlretrieve(self.cachy_config_raw, config_dst)
 
         if not use_container:
             missing_deps = self.check_build_dependencies(use_container=False)
@@ -970,7 +979,16 @@ WORKDIR /workspace
 
         hw = self.detect_hardware()
 
-        # 5. Hardware Drivers: Current System Config (localmodconfig + safe drivers base)
+        # 5. Hardware Drivers: When compiling in Container (Docker/Podman), compile for ALL hardware (no container-specific driver trimming)
+        if use_container:
+            if use_localmodconfig and progress_callback:
+                progress_callback("\n=======================================================")
+                progress_callback("[*] Container build detected (Docker/Podman):")
+                progress_callback("    Compiling with full driver support for ALL hardware.")
+                progress_callback("    Hardware driver trimming ('make localmodconfig') is bypassed to ensure universal hardware compatibility.")
+                progress_callback("=======================================================\n")
+            use_localmodconfig = False
+
         if use_localmodconfig:
             if progress_callback:
                 progress_callback("\n=======================================================")

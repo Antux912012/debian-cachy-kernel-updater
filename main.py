@@ -771,9 +771,17 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
                 self.build_mode_row.set_subtitle(f"Detected engine: {engine.capitalize()} (Debian Bookworm isolated environment)")
             else:
                 self.build_mode_row.set_subtitle("Podman will be installed as a dependency (Debian Bookworm isolated environment)")
-            self.log("[i] Container build selected: dependencies will run inside an isolated builder image.")
+            self.hw_config_check.set_active(False)
+            self.hw_config_check.set_sensitive(False)
+            self.hw_config_row.set_sensitive(False)
+            self.hw_config_row.set_subtitle("Disabled in Container Mode: Container compilation builds for all hardware.")
+            self.log("[i] Container build selected: compiling for all hardware inside an isolated builder image.")
         else:
             self.build_mode_row.set_subtitle("Native Host Build (Recommended — Fastest) compiles directly on host")
+            self.hw_config_check.set_sensitive(True)
+            self.hw_config_check.set_active(True)
+            self.hw_config_row.set_sensitive(True)
+            self.hw_config_row.set_subtitle("Tailors drivers to machine while preserving Wi-Fi, Bluetooth, storage & filesystem baselines.")
             self.log("[i] Native Host Build selected: compiling directly on host.")
 
         # Re-check dependencies dynamically for the newly selected environment
@@ -965,7 +973,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         dl_url = target_rel['download_url'] if target_rel else self.kernel_manager.download_url
 
         use_container = (self.build_mode_row.get_selected() == 1)
-        use_localmodconfig = self.hw_config_check.get_active()
+        use_localmodconfig = False if use_container else self.hw_config_check.get_active()
         strip_debug_symbols = self.strip_debug_check.get_active()
         auto_install = self.auto_install_check.get_active()
         sign_after_install = self.sign_postinst_check.get_active()
@@ -987,6 +995,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         output_dir = self.kernel_manager.get_output_kernel_dir(is_native=(cpu_arch == 'native'), version=ver)
         mode_str = f"Container ({self.kernel_manager.get_container_engine() or 'Podman'})" if use_container else "Native Host System"
         opt_str = "Native (-march=native)" if cpu_arch == 'native' else ("Generic x86-64-v3" if cpu_arch == 'x86-64-v3' else "Generic x86-64 (Safe for all modern CPUs)")
+        hw_str = "All Hardware (Universal Generic Drivers — Container Mode)" if use_container else ("Current System Hardware (localmodconfig)" if use_localmodconfig else "All Hardware (Universal Generic Drivers)")
 
         dialog = Adw.MessageDialog(
             transient_for=self,
@@ -994,6 +1003,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
             body=(
                 f"Kernel Version: {ver}\n"
                 f"Build Environment: {mode_str}\n"
+                f"Hardware Drivers: {hw_str}\n"
                 f"CPU Architecture: {opt_str}\n"
                 f"CPU Scheduler: {cpu_scheduler.upper()} | Tick Rate: {tick_rate} Hz\n"
                 f"Parallel Threads: {threads} (1 core kept free)\n\n"
