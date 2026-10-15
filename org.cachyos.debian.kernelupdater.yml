@@ -1,0 +1,56 @@
+app-id: org.cachyos.debian.kernelupdater
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: cachy-kernel-updater
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=host
+  - --talk-name=org.freedesktop.Flatpak
+  - --talk-name=org.freedesktop.Notifications
+  - --system-talk-name=org.freedesktop.PolicyKit1
+
+modules:
+  - name: python3-dependencies
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --find-links=flatpak/wheels --prefix=${FLATPAK_DEST} requests urllib3 certifi idna charset-normalizer
+    sources:
+      - type: dir
+        path: flatpak/wheels
+        dest: flatpak/wheels
+
+  - name: cachy-kernel-updater
+    buildsystem: simple
+    build-commands:
+      - install -d ${FLATPAK_DEST}/share/cachy-kernel-updater
+      - install -m 644 main.py kernel_manager.py Containerfile ${FLATPAK_DEST}/share/cachy-kernel-updater/
+      - install -m 755 sign-kernel.sh ${FLATPAK_DEST}/share/cachy-kernel-updater/
+      - cp -r assets ${FLATPAK_DEST}/share/cachy-kernel-updater/
+
+      - install -d ${FLATPAK_DEST}/bin
+      - |
+        cat << 'EOF' > ${FLATPAK_DEST}/bin/cachy-kernel-updater
+        #!/usr/bin/env bash
+        export PYTHONPATH="/app/lib/python3.11/site-packages:${PYTHONPATH}"
+        exec /usr/bin/python3 /app/share/cachy-kernel-updater/main.py "$@"
+        EOF
+      - chmod 755 ${FLATPAK_DEST}/bin/cachy-kernel-updater
+
+      - install -D -m 644 org.cachyos.debian.kernelupdater.desktop ${FLATPAK_DEST}/share/applications/org.cachyos.debian.kernelupdater.desktop
+      - install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml ${FLATPAK_DEST}/share/metainfo/org.cachyos.debian.kernelupdater.metainfo.xml
+
+      - install -D -m 644 assets/org.cachyos.debian.kernelupdater.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/org.cachyos.debian.kernelupdater.svg
+      - install -D -m 644 assets/logo_48.png ${FLATPAK_DEST}/share/icons/hicolor/48x48/apps/org.cachyos.debian.kernelupdater.png
+      - install -D -m 644 assets/logo_128.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/org.cachyos.debian.kernelupdater.png
+      - install -D -m 644 assets/logo_256.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/org.cachyos.debian.kernelupdater.png
+      - install -D -m 644 assets/logo_512.png ${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/org.cachyos.debian.kernelupdater.png
+      - install -D -m 644 assets/logo_256.png ${FLATPAK_DEST}/share/pixmaps/org.cachyos.debian.kernelupdater.png
+    sources:
+      - type: dir
+        path: .

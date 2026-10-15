@@ -3,18 +3,23 @@
 A modern **GTK4 / Libadwaita** application designed for Debian systems to check, download, compile, install, and rollback performance-optimized **CachyOS Linux Kernels**.
 
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
-![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-3584e4?logo=gnome&logoColor=white)
+![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.0.7-blue.svg)
+![Version](https://img.shields.io/badge/version-1.10.b-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 <p align="center">
-  <img src="assets/Debian-Cachy-OS.jpeg" alt="Debian CachyOS Kernel Updater" width="750">
+  <img src="assets/logo_256.png" alt="Debian CachyOS Kernel Updater Logo" width="180">
 </p>
 
-> [!WARNING]
-> **Disclaimer — Experimental Software:**
-> This tool is an independent community project and is currently **experimental**. Compiling, installing, or modifying system kernels carries inherent risks. While safety checks and rollback options are built in, you should **always maintain a fallback stock Debian kernel** on your system. Use at your own risk.
+> [!CAUTION]
+> ### ⚠️ EXPERIMENTAL TOOL & LIMITATION OF LIABILITY
+>
+> - **Experimental Software:** This software is an independent community project provided strictly as an **EXPERIMENTAL TOOL**.
+> - **No Assumption of Responsibility:** The developers, maintainers, and contributors **DO NOT ASSUME ANY RESPONSIBILITY OR LIABILITY WHATSOEVER** for any direct, indirect, incidental, or consequential damages, hardware malfunction, boot failures, unbootable system states, data loss, downtime, or system mis-use resulting from the use or inability to use this software.
+> - **Inherent System Risks:** Compiling Linux kernels, tailoring hardware drivers, modifying `/boot`, configuring GRUB bootloader entries, and enrolling Machine Owner Keys (MOK) into motherboard UEFI NVRAM are low-level operations that carry inherent risks. You use this software **ENTIRELY AT YOUR OWN RISK**.
+> - **Mandatory Fallback Kernel:** Users must **always maintain a proven, working stock Debian kernel** installed on their system to guarantee system recovery should an experimental kernel fail to boot.
+> - **Open Source Standard & License:** This tool is free software licensed under the standard **GNU General Public License v3.0 (GPLv3)**. See [LICENSE](LICENSE) for the full terms, conditions, and standard disclaimer of warranty (GPLv3 Sections 15 & 16).
 
 ---
 
@@ -94,18 +99,31 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.0.7 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.0.7):
+Download the pre-compiled `.deb` package from the [v1.10.b Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.10.b):
 
-* 📦 **[cachy-kernel-updater_1.0.7_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.0.7/cachy-kernel-updater_1.0.7_all.deb)**
+* 📦 **[cachy-kernel-updater_1.10.b_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.10.b/cachy-kernel-updater_1.10.b_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.0.7_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.10.b_all.deb
 ```
 
 ---
 
-### Method 3: Running Directly from Source (Python)
+### Method 3: Standalone Flatpak Bundle
+
+Download and install the standalone `.flatpak` bundle:
+```bash
+flatpak install --user cachy-kernel-updater_1.10.b.flatpak
+```
+Or run directly:
+```bash
+flatpak run org.cachyos.debian.kernelupdater
+```
+
+---
+
+### Method 4: Running Directly from Source (Python)
 If running from source code (`python3 main.py`), you must ensure the following Debian packages and GTK4 libraries are installed:
 
 | Library Package | Purpose |
@@ -148,23 +166,38 @@ sudo apt install -y build-essential libncurses-dev bison flex libssl-dev \
 > **Crucial for Systems with Secure Boot Enabled:**
 > Custom compiled Linux kernels are not signed by Debian's official Microsoft-trusted EFI key. If your computer has **UEFI Secure Boot enabled**, your motherboard firmware will refuse to boot the newly compiled CachyOS kernel unless it is signed with a **Machine Owner Key (MOK)**.
 
-### Option A: In-App MOK Signing & Enrollment (Automatic)
-The application now features built-in **Post-Build Secure Boot (MOK) Signing**:
-1. When **Auto-sign built kernel packages (UEFI MOK)** is toggled on (enabled by default when Secure Boot is detected), the application automatically unpacks your newly compiled `linux-image-*.deb` packages, signs `/boot/vmlinuz-*` using your local MOK key via `sbsign`, verifies the signature with `sbverify`, and repacks the `.deb` archive in-place.
-2. If your MOK key has not yet been enrolled into your system's NVRAM, the app opens a dialog prompting for a one-time temporary enrollment password and stages the key via `pkexec mokutil --import`.
-3. Upon reboot, the blue **MokManager** screen appears:
+### Option A: Atomic Post-Installation Kernel & DKMS Signing (Recommended)
+The application provides integrated **Single-Transaction Privileged Helper Architecture**:
+1. When **"Sign Kernel for UEFI Secure Boot After Installation"** is checked (safe default, pre-ticked across systems):
+   - MOK certificates (`MOK.priv`, `MOK.der`, `MOK.pem`) are generated directly inside the **kernel output directory** alongside the compiled `.deb` packages (and mirrored to `/var/lib/shim-signed/mok/` for system/DKMS compatibility).
+   - Certificates in the output folder are owned by the desktop user (`600` for `MOK.priv`, `644` for `MOK.der`/`pem`) so they can be retrieved or backed up without root permissions.
+   - The app prompts for a one-time MOK enrollment password *only* if your key is not already enrolled in UEFI NVRAM.
+   - A single `pkexec` authorization executes the atomic helper `sign-kernel.sh --install-and-sign <output_dir> [mok_pass]`.
+   - The helper installs missing signing packages (`sbsigntool`, `mokutil`), extracts the exact kernel image from the `.deb`, installs via `dpkg -i`, signs `/boot/vmlinuz-*` via `sbsign`, signs DKMS modules, updates `initramfs` and `update-grub`, and stages MOK enrollment non-interactively via `mokutil --import`.
+   - Installs a persistent Debian hook at `/etc/kernel/postinst.d/zz-cachyos-secureboot-sign` (chmod 0755) so future CachyOS kernel updates are signed automatically.
+2. If the MOK key is enrolled on reboot, a clear MokManager walkthrough is displayed:
    - Select **Enroll MOK** -> **Continue** -> **Yes**.
    - Enter your chosen temporary password.
    - Select **Reboot** to boot into your newly signed kernel!
+3. Standalone Actions:
+   - Click **"🔒 Sign Installed Kernel (Secure Boot)"** to sign already-installed kernels and DKMS modules in `/boot` in a single transaction.
+   - Click **"🔄 Reset MOK Keys"** (or `"🔄 Reset & Recreate MOK Keys"`) to cancel pending enrollments (`mokutil --revoke-import`), delete old keys, generate brand-new RSA-2048 MOK keys from scratch in the output folder, and re-sign your kernel.
+   - Click **"📂 Open Folder"** next to *MOK Certificates & Packages Location* to directly inspect your `.deb` packages and `MOK.der`/`pem` files.
 
 ### Option B: CLI Signing with `sign-kernel.sh`
 For headless systems or command-line workflows, use [`sign-kernel.sh`](sign-kernel.sh):
 ```bash
-# Sign built .deb packages with MOK:
-./sign-kernel.sh --sign-deb-mok ~/kernel-build-deb/Linux-kernel-CachyOS-.../
+# Atomic install, sign, DKMS, initramfs, GRUB, and MOK enrollment:
+sudo ./sign-kernel.sh --install-and-sign ~/kernel-build-deb/Linux-kernel-CachyOS-.../ [mok_password]
 
-# Or sign installed kernel in /boot and update initramfs:
-sudo ./sign-kernel.sh --secureboot
+# Sign existing installed kernel in /boot and queue MOK:
+sudo ./sign-kernel.sh --sign-only ~/kernel-build-deb/Linux-kernel-CachyOS-.../ auto [mok_password]
+
+# Reset MOK keys from scratch, re-sign installed kernel, and queue new enrollment:
+sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-CachyOS-.../ [mok_password]
+
+# Check Secure Boot and MOK enrollment status without root:
+./sign-kernel.sh --status [output_dir]
 ```
 
 ---
@@ -175,30 +208,40 @@ sudo ./sign-kernel.sh --secureboot
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.0.7_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.10.b_all.deb`.
 
-### Build the AppImage
+### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
-./build_appimage.sh
+./build_flatpak.sh
 ```
-This generates `CachyOS_Kernel_Updater-1.0.7-x86_64.AppImage`.
+This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.10.b.flatpak`.
 
 ---
 
 ## Project Structure
 
 ```
-├── assets/              # Screenshots and visual media
-│   └── Debian-Cachy-OS.jpeg
-├── main.py              # GTK4 / Libadwaita User Interface
-├── kernel_manager.py    # Backend engine: version checking, compilation, install & rollback
-├── build_deb.sh         # Debian package (.deb) generator script
-├── build_appimage.sh    # AppImage packaging script
-├── sign-kernel.sh       # Secure Boot MOK signing script
-├── AppImageBuilder.yml  # AppImage recipe configuration
-├── requirements.txt     # Python requirements
-├── LICENSE              # GNU General Public License v3.0
-└── README.md            # Documentation & requirements
+├── assets/                                      # Official CachyOS emblem logo assets
+│   ├── logo_48.png                              # 48x48 icon
+│   ├── logo_128.png                             # 128x128 icon
+│   ├── logo_256.png                             # 256x256 icon
+│   ├── logo_512.png                             # 512x512 icon
+│   ├── logo_master.png                          # High-resolution master icon
+│   └── org.cachyos.debian.kernelupdater.svg     # Scalable SVG application emblem
+├── flatpak/
+│   └── wheels/                                  # Offline Python wheels for Flatpak
+├── main.py                                      # GTK4 / Libadwaita User Interface
+├── kernel_manager.py                            # Backend engine: version checking, compilation, install & rollback
+├── sign-kernel.sh                               # Atomic UEFI Secure Boot MOK signing & enrollment tool
+├── build_deb.sh                                 # Debian package (.deb) generator script
+├── build_flatpak.sh                             # Flatpak bundle (.flatpak) packaging script
+├── org.cachyos.debian.kernelupdater.yml         # Flatpak application manifest
+├── org.cachyos.debian.kernelupdater.desktop     # Desktop application launcher
+├── org.cachyos.debian.kernelupdater.metainfo.xml# AppStream metadata specification
+├── Containerfile                                # Containerized isolated compiler definition
+├── requirements.txt                             # Python requirements
+├── LICENSE                                      # GNU General Public License v3.0 (GPLv3)
+└── README.md                                    # Documentation & instructions
 ```
 
 ---
@@ -220,7 +263,12 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 
 ## 📜 Changelog
 
-### v1.0.7
+### v1.10.b
+- **New Vibrant Emblem Logo & Branding Palette**: Adopted modern low-poly CachyOS "C" rocket emblem with rich crimson (`#D82655`) and vibrant teal (`#00A896`), including matching GTK4/Adwaita custom CSS themes, status badges, and gradient progress bars.
+- **Top System Status Card**: Enhanced top banner with app icon, version badge (`v1.10.b`), and integrated About dialog.
+- **Guided 1-2-3 Step UI Workflow**: Streamlined the user interface into 3 clear cards with safe cross-system defaults pre-selected out-of-the-box (`localmodconfig`, stripped debug symbols, automated `.deb` installation, and post-install UEFI signing).
+- **Dual Package Distribution**: Added standalone Flatpak bundle (`.flatpak`) alongside official Debian package (`.deb`).
+- **Co-Located MOK Certificates**: Generated MOK certificates are stored directly in the kernel build output directory with user permissions.
 - **Resolved `bindeb-pkg` Error 2**: Sanitized Debian/Canonical `.pem` certificate traps (`SYSTEM_TRUSTED_KEYS=""`, `SYSTEM_REVOCATION_KEYS=""`, `MODULE_SIG_KEY=""`) and decoupled module signing from the compilation phase, enabling robust failure-free kernel builds natively and inside Podman/Docker containers.
 - **Added Full Kernel 7.x & Packaging Dependencies**: Added `pahole`, `dwarves`, `sbsigntool`, `mokutil`, `openssl`, `fakeroot`, and `dpkg-dev` to `Containerfile`, `build_deb.sh`, and `kernel_manager.py`.
 - **In-App Post-Build UEFI Secure Boot (MOK) Signing**: Automatically unpacks `linux-image-*.deb` packages post-compilation, signs internal `/boot/vmlinuz-*` binaries with `sbsign`, verifies cryptographic signatures via `sbverify`, and repacks `.deb` packages in-place.
@@ -232,7 +280,24 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 
 ---
 
-## License
+## ⚖️ Standard & License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+This software is an open-source community project distributed under the **[GNU General Public License v3.0 (GPLv3)](LICENSE)** standard.
+
+```text
+Debian CachyOS Kernel Installer & Updater
+Copyright (C) 2026 Antonio and Contributors.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+```
+
+See the full [LICENSE](LICENSE) file for complete licensing terms, warranty disclaimer, and conditions.
 

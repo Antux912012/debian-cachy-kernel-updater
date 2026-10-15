@@ -17,6 +17,7 @@ parts/
 sdist/
 var/
 wheels/
+!flatpak/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -33,3 +34,10 @@ deb_dist/
 *.AppImage.zsync
 .bundle.yml
 apt-key
+
+# Flatpak build artifacts
+flatpak_build/
+flatpak_repo/
+.flatpak-builder/
+*.flatpak
+

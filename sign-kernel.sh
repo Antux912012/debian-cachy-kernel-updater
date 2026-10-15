@@ -1,529 +1,361 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Universal Linux Kernel & Package Signer (CachyOS / Debian)
-#
-# Standalone Modes:
-#   Mode A (UEFI Secure Boot Signing):
-#     ./sign-kernel.sh --secureboot [kernel-version-or-path]
-#
-#   Mode B (.deb Package GPG Signing):
-#     ./sign-kernel.sh --debs <deb_directory> [gpg_key_id]
+# CachyOS Debian Kernel Updater - Co-Located MOK Certificate & Signing Tool
+# Modes:
+#   sign-kernel.sh --status <output_dir>
+#   sign-kernel.sh --install-and-sign <output_dir> [mok_password]
+#   sign-kernel.sh --sign-only <output_dir> [kernel_version_or_auto] [mok_password]
+#   sign-kernel.sh --reset-and-recreate <output_dir> [mok_password]
 # ==============================================================================
-set -e
+set -euo pipefail
 
-show_usage() {
-    cat << 'EOF'
-Usage:
-  ./sign-kernel.sh --secureboot [kernel-version-or-path]
-      Signs /boot/vmlinuz-<kernel_version> using MOK keys for UEFI Secure Boot
-      and regenerates the initramfs.
+ACTION="${1:-}"
+OUTPUT_DIR="${2:-}"
+ARG3="${3:-}"
+ARG4="${4:-}"
 
-  ./sign-kernel.sh --debs <deb_directory> [gpg_key_id]
-      Cryptographically signs all compiled .deb packages in <deb_directory>
-      using a local GPG key (via dpkg-sig / debsigs and detached signatures).
+# Resolve real non-root user ownership so the desktop app can always read/retrieve certificates
+REAL_UID="${PKEXEC_UID:-${SUDO_UID:-$(id -u)}}"
+REAL_GID=$(id -g "$REAL_UID" 2>/dev/null || echo "$REAL_UID")
+REAL_USER_HOME=$(getent passwd "$REAL_UID" 2>/dev/null | cut -d: -f6 || echo "${HOME:-/root}")
 
-  ./sign-kernel.sh --sign-deb-mok <deb_directory>
-      Unpacks linux-image-*.deb packages in <deb_directory>, signs the kernel
-      binary (vmlinuz) using local MOK key with sbsign, verifies with sbverify,
-      and repacks the packages for UEFI Secure Boot.
+if [[ -z "$OUTPUT_DIR" || "$OUTPUT_DIR" == "auto" ]]; then
+    if [[ -d "${REAL_USER_HOME}/kernel-build-deb" ]]; then
+        OUTPUT_DIR="${REAL_USER_HOME}/kernel-build-deb"
+    else
+        OUTPUT_DIR="${REAL_USER_HOME}/.cache/cachy-kernel-build"
+    fi
+fi
 
-  ./sign-kernel.sh --help | -h
-      Displays this help information.
+mkdir -p "$OUTPUT_DIR"
+MOK_PRIV="${OUTPUT_DIR}/MOK.priv"
+MOK_DER="${OUTPUT_DIR}/MOK.der"
+MOK_PEM="${OUTPUT_DIR}/MOK.pem"
 
-Examples:
-  ./sign-kernel.sh --secureboot 7.2.10-cachyos-debian
-  ./sign-kernel.sh --sign-deb-mok ~/kernel-build-deb/Linux-kernel-CachyOS-7.2.10-1-debian
-  ./sign-kernel.sh --debs ~/kernel-build-deb/Linux-kernel-CachyOS-7.2.10-1-debian
+SYS_MOK_DIR="/var/lib/shim-signed/mok"
+
+log_info()  { echo "[INFO] $*"; }
+log_ok()    { echo "[SUCCESS] $*"; }
+log_warn()  { echo "[WARN] $*"; }
+log_err()   { echo "[ERROR] $*" >&2; }
+
+# --- MODE 1: Status Check (Reads directly from <output_dir>) ---
+if [[ "$ACTION" == "--status" ]]; then
+    SB_STATE="disabled"
+    if command -v mokutil >/dev/null 2>&1; then
+        if mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled"; then
+            SB_STATE="enabled"
+        fi
+    fi
+
+    KEY_EXISTS="no"
+    KEY_ENROLLED="no"
+    CHECK_DER=""
+    if [[ -f "$MOK_DER" ]]; then
+        CHECK_DER="$MOK_DER"
+        if [[ -f "$MOK_PRIV" && -f "$MOK_PEM" ]]; then
+            KEY_EXISTS="yes"
+        fi
+    elif [[ -f "${SYS_MOK_DIR}/MOK.der" ]]; then
+        CHECK_DER="${SYS_MOK_DIR}/MOK.der"
+        if [[ -f "${SYS_MOK_DIR}/MOK.priv" && -f "${SYS_MOK_DIR}/MOK.pem" ]]; then
+            KEY_EXISTS="yes"
+        fi
+    fi
+
+    if [[ -n "$CHECK_DER" ]] && command -v mokutil >/dev/null 2>&1; then
+        if mokutil --test-key "$CHECK_DER" 2>&1 | grep -qi "is already enrolled"; then
+            KEY_ENROLLED="yes"
+        fi
+    fi
+
+    echo "SB_STATE=${SB_STATE}"
+    echo "KEY_EXISTS=${KEY_EXISTS}"
+    echo "KEY_ENROLLED=${KEY_ENROLLED}"
+    echo "CERT_DIR=${OUTPUT_DIR}"
+    exit 0
+fi
+
+if [[ $EUID -ne 0 ]]; then
+    log_err "This operation requires root privileges (pkexec)."
+    exit 1
+fi
+
+# --- Helper: Ensure Required Signing Packages ---
+MISSING_PKGS=()
+for cmd_pkg in "sbsign:sbsigntool" "sbverify:sbsigntool" "mokutil:mokutil" "openssl:openssl" "update-initramfs:initramfs-tools"; do
+    cmd="${cmd_pkg%%:*}"
+    pkg="${cmd_pkg##*:}"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        MISSING_PKGS+=("$pkg")
+    fi
+done
+if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
+    log_info "Installing missing Secure Boot tools: ${MISSING_PKGS[*]}..."
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${MISSING_PKGS[@]}"
+fi
+
+# --- Helper: Generate Fresh Certificates in <output_dir> ---
+generate_certificates_in_output_dir() {
+    local force_new="${1:-false}"
+    mkdir -p "$OUTPUT_DIR"
+
+    # If certificates exist in /var/lib/shim-signed/mok/ but not in OUTPUT_DIR, import them
+    if [[ "$force_new" != "true" && (! -f "$MOK_PRIV" || ! -f "$MOK_DER" || ! -f "$MOK_PEM") && -f "${SYS_MOK_DIR}/MOK.priv" && -f "${SYS_MOK_DIR}/MOK.der" ]]; then
+        log_info "Copying existing system MOK certificates into kernel output folder: ${OUTPUT_DIR}..."
+        cp -f "${SYS_MOK_DIR}/MOK.priv" "$MOK_PRIV"
+        cp -f "${SYS_MOK_DIR}/MOK.der"  "$MOK_DER"
+        if [[ -f "${SYS_MOK_DIR}/MOK.pem" ]]; then
+            cp -f "${SYS_MOK_DIR}/MOK.pem" "$MOK_PEM"
+        else
+            openssl x509 -inform DER -in "$MOK_DER" -out "$MOK_PEM"
+        fi
+    fi
+
+    if [[ "$force_new" == "true" ]] || [[ ! -f "$MOK_PRIV" ]] || [[ ! -f "$MOK_DER" ]] || [[ ! -f "$MOK_PEM" ]]; then
+        log_info "Generating fresh MOK certificates in kernel output folder: ${OUTPUT_DIR}..."
+        rm -f "$MOK_PRIV" "$MOK_DER" "$MOK_PEM"
+
+        openssl req -new -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -outform DER \
+            -keyout "$MOK_PRIV" \
+            -out "$MOK_DER" \
+            -subj "/CN=CachyOS Kernel Signing Key ($(date +%Y-%m-%d))/" \
+            -addext "extendedKeyUsage=codeSigning" 2>/dev/null || \
+        openssl req -new -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -outform DER \
+            -keyout "$MOK_PRIV" \
+            -out "$MOK_DER" \
+            -subj "/CN=CachyOS Kernel Signing Key ($(date +%Y-%m-%d))/"
+
+        openssl x509 -inform DER -in "$MOK_DER" -out "$MOK_PEM"
+
+        # Set ownership to the desktop user so the app and user can always read/retrieve them
+        chown "$REAL_UID:$REAL_GID" "$MOK_PRIV" "$MOK_DER" "$MOK_PEM"
+        chmod 600 "$MOK_PRIV"
+        chmod 644 "$MOK_DER" "$MOK_PEM"
+        log_ok "Saved MOK.priv, MOK.der, and MOK.pem in: ${OUTPUT_DIR}"
+    else
+        log_info "Using existing MOK certificates from: ${OUTPUT_DIR}"
+        chown "$REAL_UID:$REAL_GID" "$MOK_PRIV" "$MOK_DER" "$MOK_PEM" 2>/dev/null || true
+        chmod 600 "$MOK_PRIV"
+        chmod 644 "$MOK_DER" "$MOK_PEM"
+    fi
+
+    # Mirror to /var/lib/shim-signed/mok for DKMS & system compatibility
+    mkdir -p "$SYS_MOK_DIR"
+    cp -f "$MOK_PRIV" "${SYS_MOK_DIR}/MOK.priv"
+    cp -f "$MOK_DER"  "${SYS_MOK_DIR}/MOK.der"
+    cp -f "$MOK_PEM"  "${SYS_MOK_DIR}/MOK.pem"
+    chmod 600 "${SYS_MOK_DIR}/MOK.priv"
+    chmod 644 "${SYS_MOK_DIR}/MOK.der" "${SYS_MOK_DIR}/MOK.pem"
+}
+
+# --- Helper: Install Persistent Kernel Postinst Hook ---
+install_persistent_postinst_hook() {
+    local hook_path="/etc/kernel/postinst.d/zz-cachyos-secureboot-sign"
+    mkdir -p /etc/kernel/postinst.d
+    cat << 'EOF' > "$hook_path"
+#!/usr/bin/env bash
+KVER="$1"
+VMLINUZ="/boot/vmlinuz-${KVER}"
+MOK_PRIV="/var/lib/shim-signed/mok/MOK.priv"
+MOK_PEM="/var/lib/shim-signed/mok/MOK.pem"
+if [[ "$KVER" == *cachy* ]] && [[ -f "$VMLINUZ" ]] && [[ -f "$MOK_PRIV" ]] && [[ -f "$MOK_PEM" ]] && command -v sbsign >/dev/null 2>&1; then
+    if ! sbverify --cert "$MOK_PEM" "$VMLINUZ" >/dev/null 2>&1; then
+        echo "[cachyos-sign] Auto-signing $VMLINUZ for UEFI Secure Boot..."
+        sbsign --key "$MOK_PRIV" --cert "$MOK_PEM" --output "${VMLINUZ}.signed.tmp" "$VMLINUZ" && mv -f "${VMLINUZ}.signed.tmp" "$VMLINUZ"
+        chmod 644 "$VMLINUZ"
+    fi
+fi
+exit 0
 EOF
+    chmod 755 "$hook_path"
 }
 
-# Resolve real invoking user and home directory
-get_real_user_home() {
-    local real_user="${SUDO_USER:-${PKEXEC_UID:+$(id -nu "$PKEXEC_UID" 2>/dev/null)}}"
-    real_user="${real_user:-$USER}"
-    local real_home=""
-    if command -v getent &>/dev/null; then
-        real_home=$(getent passwd "$real_user" 2>/dev/null | cut -d: -f6)
+# --- Helper: Sign DKMS Modules ---
+sign_dkms_modules() {
+    local kver="$1"
+    local mod_dir="/lib/modules/${kver}"
+    local sign_file="${mod_dir}/build/scripts/sign-file"
+    if [[ -x "$sign_file" && -d "${mod_dir}/updates" ]]; then
+        log_info "Signing DKMS modules in ${mod_dir}/updates..."
+        while IFS= read -r -d '' ko_file; do
+            "$sign_file" sha512 "$MOK_PRIV" "$MOK_DER" "$ko_file" 2>/dev/null || true
+        done < <(find "${mod_dir}/updates" -type f -name "*.ko" -print0)
+        depmod -a "$kver" 2>/dev/null || true
+        log_ok "DKMS modules signed for ${kver}."
     fi
-    echo "${real_home:-$HOME}"
 }
 
-get_real_user() {
-    local real_user="${SUDO_USER:-${PKEXEC_UID:+$(id -nu "$PKEXEC_UID" 2>/dev/null)}}"
-    echo "${real_user:-$USER}"
-}
+# --- MODE 2: Cancel Previous Enrollment & Recreate Certificates from Scratch ---
+if [[ "$ACTION" == "--reset-and-recreate" ]]; then
+    MOK_PASS="$ARG3"
+    log_info "Canceling any pending MOK enrollment requests in UEFI..."
+    mokutil --revoke-import 2>/dev/null || true
 
-# Privilege escalation helper
-run_as_root() {
-    if [ "$EUID" -eq 0 ]; then
-        "$@"
-    elif command -v pkexec &>/dev/null; then
-        pkexec "$@"
-    elif command -v sudo &>/dev/null; then
-        sudo "$@"
+    OLD_DER=""
+    if [[ -f "$MOK_DER" ]]; then
+        OLD_DER="$MOK_DER"
+    elif [[ -f "${SYS_MOK_DIR}/MOK.der" ]]; then
+        OLD_DER="${SYS_MOK_DIR}/MOK.der"
+    fi
+
+    # If an old MOK.der exists and was previously enrolled, request deletion if password provided
+    if [[ -n "$OLD_DER" ]] && mokutil --test-key "$OLD_DER" 2>&1 | grep -qi "is already enrolled"; then
+        if [[ -n "$MOK_PASS" ]]; then
+            log_info "Scheduling removal of old enrolled MOK key..."
+            printf "%s\n%s\n" "$MOK_PASS" "$MOK_PASS" | mokutil --delete "$OLD_DER" 2>/dev/null || true
+        fi
+    fi
+
+    log_info "Deleting old certificates from ${OUTPUT_DIR} and ${SYS_MOK_DIR}..."
+    rm -f "$MOK_PRIV" "$MOK_DER" "$MOK_PEM"
+    rm -f "${SYS_MOK_DIR}/MOK.priv" "${SYS_MOK_DIR}/MOK.der" "${SYS_MOK_DIR}/MOK.pem"
+
+    # Generate brand new certificates in OUTPUT_DIR
+    generate_certificates_in_output_dir "true"
+    install_persistent_postinst_hook
+
+    # Queue the new MOK.der for enrollment if password was supplied
+    if [[ -n "$MOK_PASS" ]]; then
+        log_info "Queueing brand-new MOK.der for UEFI Secure Boot enrollment..."
+        printf "%s\n%s\n" "$MOK_PASS" "$MOK_PASS" | mokutil --import "$MOK_DER"
+        log_ok "MOK_STATUS=ENROLLMENT_QUEUED"
     else
-        echo "[-] Error: Root privileges required for: $*"
-        exit 1
-    fi
-}
-
-# ------------------------------------------------------------------------------
-# Mode A: UEFI Secure Boot Signing (MOK)
-# ------------------------------------------------------------------------------
-sign_secureboot() {
-    local TARGET="$1"
-    echo "======================================================="
-    echo "  UEFI Secure Boot Kernel Signer (MOK)"
-    echo "======================================================="
-
-    # 1. Check prerequisites
-    local missing_tools=()
-    command -v sbsign &>/dev/null || missing_tools+=("sbsign")
-    command -v openssl &>/dev/null || missing_tools+=("openssl")
-    command -v mokutil &>/dev/null || missing_tools+=("mokutil")
-
-    if [ ${#missing_tools[@]} -gt 0 ]; then
-        echo "[*] Missing required tool(s): ${missing_tools[*]}"
-        echo "[*] Auto-installing prerequisites (sbsigntool, openssl, mokutil)..."
-        run_as_root apt-get update
-        run_as_root apt-get install -y --no-install-recommends sbsigntool openssl mokutil
-        echo "[✓] All prerequisites installed successfully."
+        log_warn "MOK_STATUS=NEEDS_ENROLLMENT"
     fi
 
-    # 2. Check Secure Boot Status
-    if command -v mokutil &>/dev/null; then
-        local sb_status
-        sb_status=$(mokutil --sb-state 2>/dev/null || true)
-        if [[ "$sb_status" =~ "SecureBoot enabled" ]]; then
-            echo "[i] Secure Boot is currently: ENABLED (signing is mandatory to boot)"
-        elif [[ "$sb_status" =~ "SecureBoot disabled" ]]; then
-            echo "[i] Secure Boot is currently: DISABLED (signing for compatibility)"
-        else
-            echo "[i] Secure Boot status: ${sb_status:-Unknown}"
-        fi
+    # Also re-sign the latest installed CachyOS kernel in /boot if present so it matches the new key
+    NEWEST_VMLINUZ=$(ls -t /boot/vmlinuz-*cachy* 2>/dev/null | grep -v '\.old$' | grep -v '\.signed$' | head -n1 || true)
+    if [[ -n "$NEWEST_VMLINUZ" && -f "$NEWEST_VMLINUZ" ]]; then
+        KVER="${NEWEST_VMLINUZ#/boot/vmlinuz-}"
+        log_info "Re-signing installed kernel ${NEWEST_VMLINUZ} with the newly created MOK key..."
+        sbsign --key "$MOK_PRIV" --cert "$MOK_PEM" --output "${NEWEST_VMLINUZ}.signed.tmp" "$NEWEST_VMLINUZ"
+        mv -f "${NEWEST_VMLINUZ}.signed.tmp" "$NEWEST_VMLINUZ"
+        chmod 644 "$NEWEST_VMLINUZ"
+        sbverify --cert "$MOK_PEM" "$NEWEST_VMLINUZ"
+        sign_dkms_modules "$KVER"
+        update-initramfs -u -k "$KVER"
+        command -v update-grub >/dev/null 2>&1 && update-grub
+        log_ok "Re-signed ${NEWEST_VMLINUZ} with the new certificate!"
     fi
 
-    # 3. Locate or Generate MOK keypair
-    local real_home
-    real_home="$(get_real_user_home)"
-    local real_user
-    real_user="$(get_real_user)"
-    local user_mok_dir="${real_home}/.config/cachy-kernel-updater/mok"
+    log_ok "RESET_COMPLETE=${OUTPUT_DIR}"
+    exit 0
+fi
 
-    local KEY=""
-    local CERT=""
-    local search_dirs=(
-        "$user_mok_dir"
-        "/var/lib/shim-signed/mok"
-        "/etc/secureboot/mok"
-        "${real_home}/.mok"
-        "/root/.mok"
-    )
+# --- MODE 3 & 4: Install & Sign OR Sign-Only ---
+DETECTED_KVER=""
+MOK_PASS=""
 
-    for dir in "${search_dirs[@]}"; do
-        [ -z "$dir" ] && continue
-        if [ -f "$dir/MOK.priv" ] && [ -f "$dir/MOK.pem" ]; then
-            KEY="$dir/MOK.priv"
-            CERT="$dir/MOK.pem"
-            echo "[✓] Found existing MOK key pair: $dir"
-            break
-        elif [ -f "$dir/MOK.key" ] && [ -f "$dir/MOK.crt" ]; then
-            KEY="$dir/MOK.key"
-            CERT="$dir/MOK.crt"
-            echo "[✓] Found existing MOK key pair: $dir"
-            break
-        fi
-    done
-
-    if [ -z "$KEY" ] || [ -z "$CERT" ]; then
-        echo "[!] No existing Machine Owner Key (MOK) found."
-        echo "[*] Generating a new persistent 2048-bit RSA MOK keypair in $user_mok_dir..."
-        mkdir -p "$user_mok_dir"
-        chmod 700 "$user_mok_dir"
-
-        openssl req -new -x509 -newkey rsa:2048 \
-            -keyout "$user_mok_dir/MOK.priv" \
-            -out "$user_mok_dir/MOK.pem" \
-            -nodes -days 3650 \
-            -subj "/CN=CachyOS Custom Kernel MOK ($(hostname))/"
-
-        openssl x509 -in "$user_mok_dir/MOK.pem" -outform DER -out "$user_mok_dir/MOK.der"
-        chmod 600 "$user_mok_dir/MOK.priv"
-        chmod 644 "$user_mok_dir/MOK.pem" "$user_mok_dir/MOK.der"
-
-        if [ "$EUID" -eq 0 ] && [ "$real_user" != "root" ]; then
-            chown -R "$real_user":"$(id -ng "$real_user")" "$user_mok_dir" 2>/dev/null || true
-        fi
-
-        KEY="$user_mok_dir/MOK.priv"
-        CERT="$user_mok_dir/MOK.pem"
-        echo "[✓] Created persistent MOK keypair: $user_mok_dir"
-
-        echo ""
-        echo "========================================================================="
-        echo "  FIRST-TIME MOK ENROLLMENT REQUIRED"
-        echo "========================================================================="
-        echo "  Enrolling MOK certificate with mokutil..."
-        echo "  You will be prompted to set a temporary enrollment password."
-        echo "========================================================================="
-        run_as_root mokutil --import "$user_mok_dir/MOK.der" || true
-        echo ""
-        echo "  Next reboot instructions:"
-        echo "    1. On reboot, select 'Enroll MOK' in the blue MOKManager screen."
-        echo "    2. Select 'Continue' -> 'Yes'."
-        echo "    3. Enter the temporary password you just set."
-        echo "========================================================================="
-        echo ""
-    fi
-
-    # 4. Locate Target Kernel Image
-    local KERNEL=""
-    if [ -n "$TARGET" ]; then
-        if [ -f "$TARGET" ]; then
-            KERNEL="$TARGET"
-        elif [ -f "/boot/$TARGET" ]; then
-            KERNEL="/boot/$TARGET"
-        elif [ -f "/boot/vmlinuz-${TARGET}" ]; then
-            KERNEL="/boot/vmlinuz-${TARGET}"
-        else
-            echo "[-] Error: Target kernel '$TARGET' not found in /boot."
-            exit 1
-        fi
-    else
-        local candidates
-        candidates=$(ls -v /boot/vmlinuz-*cachyos* 2>/dev/null || true)
-        if [ -n "$candidates" ]; then
-            KERNEL=$(echo "$candidates" | tail -n1)
-        else
-            KERNEL=$(ls -v /boot/vmlinuz-* 2>/dev/null | tail -n1)
-        fi
-    fi
-
-    if [ -z "$KERNEL" ] || [ ! -f "$KERNEL" ]; then
-        echo "[-] Error: No kernel image found in /boot to sign."
-        exit 1
-    fi
-
-    local kernel_base
-    kernel_base="$(basename "$KERNEL")"
-    local kernel_ver="${kernel_base#vmlinuz-}"
-    echo "[*] Target kernel image: $KERNEL ($kernel_ver)"
-
-    # 5. Sign the Kernel and Regenerate Initramfs
-    echo "[*] Signing kernel image with sbsign..."
-    run_as_root sbsign --key "$KEY" --cert "$CERT" "$KERNEL" --output "$KERNEL"
-
-    if command -v sbverify &>/dev/null; then
-        echo "[*] Verifying cryptographic signature..."
-        if sbverify --cert "$CERT" "$KERNEL" &>/dev/null; then
-            echo "[✓] Signature verified successfully with sbverify!"
-        else
-            echo "[!] Warning: sbverify could not verify signature immediately, but signing succeeded."
-        fi
-    fi
-
-    echo "[*] Updating initramfs for kernel $kernel_ver..."
-    run_as_root update-initramfs -u -k "$kernel_ver"
-
-    echo "======================================================="
-    echo "[✓] SUCCESS: Kernel $kernel_ver is signed & ready for Secure Boot!"
-    echo "======================================================="
-}
-
-# ------------------------------------------------------------------------------
-# Mode B: .deb Package GPG Signing
-# ------------------------------------------------------------------------------
-sign_debs() {
-    local DEB_DIR="$1"
-    local GPG_KEY_ID="$2"
-
-    echo "======================================================="
-    echo "  Debian Package GPG Signer (.deb)"
-    echo "======================================================="
-
-    if [ -z "$DEB_DIR" ] || [ ! -d "$DEB_DIR" ]; then
-        echo "[-] Error: Debian package directory '$DEB_DIR' not found."
-        echo "    Usage: ./sign-kernel.sh --debs <deb_directory> [gpg_key_id]"
-        exit 1
-    fi
-
-    # 1. Check prerequisites: gpg and debsigs/dpkg-sig
-    if ! command -v gpg &>/dev/null; then
-        echo "[*] Installing gnupg..."
-        run_as_root apt-get update
-        run_as_root apt-get install -y --no-install-recommends gnupg
-    fi
-
-    if ! command -v debsigs &>/dev/null && ! command -v dpkg-sig &>/dev/null; then
-        echo "[*] Neither 'debsigs' nor 'dpkg-sig' found. Installing 'debsigs'..."
-        run_as_root apt-get update
-        run_as_root apt-get install -y --no-install-recommends debsigs || true
-    fi
-
-    # 2. Check GPG Key availability
-    if [ -z "$GPG_KEY_ID" ]; then
-        # Auto-detect default secret key from local keyring
-        local detected_key
-        detected_key=$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '/^sec:/ {print $5}' | head -n1 || true)
-        if [ -n "$detected_key" ]; then
-            GPG_KEY_ID="$detected_key"
-            echo "[✓] Auto-detected local GPG secret key: $GPG_KEY_ID"
-        else
-            echo "[!] Warning: No GPG secret key specified and none detected in keyring."
-            echo "    Will attempt signing with default GPG key configuration."
-        fi
-    else
-        echo "[✓] Using specified GPG Key: $GPG_KEY_ID"
-    fi
-
-    # 3. Locate .deb files
-    local deb_files=()
+if [[ "$ACTION" == "--install-and-sign" ]]; then
+    MOK_PASS="$ARG3"
+    log_info "Searching for built .deb packages in ${OUTPUT_DIR}..."
     shopt -s nullglob
-    for f in "$DEB_DIR"/linux-image-*.deb "$DEB_DIR"/linux-headers-*.deb; do
-        if [[ "$f" != *"-dbg"* ]]; then
-            deb_files+=("$f")
-        fi
+    IMAGE_DEBS=()
+    HEADER_DEBS=()
+    for deb in "$OUTPUT_DIR"/linux-image-*.deb; do
+        [[ "$deb" == *-dbg_* ]] && continue
+        IMAGE_DEBS+=("$deb")
     done
-
-    if [ ${#deb_files[@]} -eq 0 ]; then
-        deb_files=("$DEB_DIR"/*.deb)
-    fi
-    shopt -u nullglob
-
-    if [ ${#deb_files[@]} -eq 0 ]; then
-        echo "[-] Error: No .deb packages found in $DEB_DIR to sign."
-        exit 1
-    fi
-
-    echo "[*] Found ${#deb_files[@]} package(s) to sign in $DEB_DIR:"
-    for deb in "${deb_files[@]}"; do
-        echo "    • $(basename "$deb")"
-    done
-    echo ""
-
-    # 4. Sign each deb package
-    local signed_count=0
-    for deb in "${deb_files[@]}"; do
-        local deb_name
-        deb_name="$(basename "$deb")"
-        echo "[*] Signing $deb_name..."
-
-        local signed_embedded=false
-        if command -v dpkg-sig &>/dev/null; then
-            if [ -n "$GPG_KEY_ID" ]; then
-                dpkg-sig -k "$GPG_KEY_ID" --sign builder "$deb" && signed_embedded=true
-            else
-                dpkg-sig --sign builder "$deb" && signed_embedded=true
-            fi
-        elif command -v debsigs &>/dev/null; then
-            if [ -n "$GPG_KEY_ID" ]; then
-                debsigs --sign=origin --default-key="$GPG_KEY_ID" "$deb" && signed_embedded=true
-            else
-                debsigs --sign=origin "$deb" && signed_embedded=true
-            fi
-        fi
-
-        # Always generate detached ASCII-armored GPG signature file (.sig)
-        if [ -n "$GPG_KEY_ID" ]; then
-            gpg --batch --yes --default-key "$GPG_KEY_ID" -abs -o "${deb}.sig" "$deb"
-        else
-            gpg --batch --yes -abs -o "${deb}.sig" "$deb"
-        fi
-
-        if [ "$signed_embedded" = true ]; then
-            echo "[✓] Successfully signed $deb_name (embedded signature + detached .sig)"
-        else
-            echo "[✓] Created detached signature ${deb_name}.sig"
-        fi
-        signed_count=$((signed_count + 1))
-    done
-
-    echo "======================================================="
-    echo "[✓] SUCCESS: Signed $signed_count .deb package(s) with GPG!"
-    echo "======================================================="
-}
-
-# ------------------------------------------------------------------------------
-# Mode C: .deb Package UEFI Secure Boot Signing (MOK)
-# ------------------------------------------------------------------------------
-sign_debs_mok() {
-    local DEB_DIR="$1"
-    echo "======================================================="
-    echo "  Debian Package UEFI Secure Boot Signer (MOK)"
-    echo "======================================================="
-
-    if [ -z "$DEB_DIR" ] || [ ! -d "$DEB_DIR" ]; then
-        echo "[-] Error: Debian package directory '$DEB_DIR' not found."
-        echo "    Usage: ./sign-kernel.sh --sign-deb-mok <deb_directory>"
-        exit 1
-    fi
-
-    # 1. Prerequisites check
-    local missing_tools=()
-    command -v sbsign &>/dev/null || missing_tools+=("sbsign")
-    command -v sbverify &>/dev/null || missing_tools+=("sbverify")
-    command -v openssl &>/dev/null || missing_tools+=("openssl")
-    command -v fakeroot &>/dev/null || missing_tools+=("fakeroot")
-    command -v dpkg-deb &>/dev/null || missing_tools+=("dpkg-deb")
-    if [ ${#missing_tools[@]} -gt 0 ]; then
-        echo "[*] Missing required tool(s): ${missing_tools[*]}"
-        echo "[*] Installing prerequisites..."
-        run_as_root apt-get update
-        run_as_root apt-get install -y --no-install-recommends sbsigntool openssl fakeroot dpkg-dev
-    fi
-
-    # 2. Locate or Generate MOK keypair
-    local real_home
-    real_home="$(get_real_user_home)"
-    local real_user
-    real_user="$(get_real_user)"
-    local user_mok_dir="${real_home}/.config/cachy-kernel-updater/mok"
-
-    local KEY=""
-    local CERT=""
-    local search_dirs=(
-        "$user_mok_dir"
-        "/var/lib/shim-signed/mok"
-        "/etc/secureboot/mok"
-        "${real_home}/.mok"
-        "/root/.mok"
-    )
-
-    for dir in "${search_dirs[@]}"; do
-        [ -z "$dir" ] && continue
-        if [ -f "$dir/MOK.priv" ] && [ -f "$dir/MOK.pem" ]; then
-            KEY="$dir/MOK.priv"
-            CERT="$dir/MOK.pem"
-            echo "[✓] Found existing MOK key pair: $dir"
-            break
-        elif [ -f "$dir/MOK.key" ] && [ -f "$dir/MOK.crt" ]; then
-            KEY="$dir/MOK.key"
-            CERT="$dir/MOK.crt"
-            echo "[✓] Found existing MOK key pair: $dir"
-            break
-        fi
-    done
-
-    if [ -z "$KEY" ] || [ -z "$CERT" ]; then
-        echo "[!] No existing Machine Owner Key (MOK) found."
-        echo "[*] Generating a new persistent 2048-bit RSA MOK keypair in $user_mok_dir..."
-        mkdir -p "$user_mok_dir"
-        chmod 700 "$user_mok_dir"
-
-        openssl req -new -x509 -newkey rsa:2048 \
-            -keyout "$user_mok_dir/MOK.priv" \
-            -out "$user_mok_dir/MOK.pem" \
-            -nodes -days 3650 \
-            -subj "/CN=CachyOS Custom Kernel MOK ($(hostname))/"
-
-        openssl x509 -in "$user_mok_dir/MOK.pem" -outform DER -out "$user_mok_dir/MOK.der"
-        chmod 600 "$user_mok_dir/MOK.priv"
-        chmod 644 "$user_mok_dir/MOK.pem" "$user_mok_dir/MOK.der"
-
-        KEY="$user_mok_dir/MOK.priv"
-        CERT="$user_mok_dir/MOK.pem"
-        echo "[✓] Created persistent MOK keypair: $user_mok_dir"
-    fi
-
-    # 3. Find linux-image-*.deb packages
-    local deb_files=()
-    shopt -s nullglob
-    for f in "$DEB_DIR"/linux-image-*.deb; do
-        [[ "$f" == *"-dbg"* ]] && continue
-        deb_files+=("$f")
+    for deb in "$OUTPUT_DIR"/linux-headers-*.deb; do
+        HEADER_DEBS+=("$deb")
     done
     shopt -u nullglob
 
-    if [ ${#deb_files[@]} -eq 0 ]; then
-        echo "[-] No linux-image-*.deb packages found in '$DEB_DIR'."
+    if [[ ${#IMAGE_DEBS[@]} -eq 0 ]]; then
+        log_err "No linux-image-*.deb packages found in ${OUTPUT_DIR}"
         exit 1
     fi
 
-    echo "[*] Found ${#deb_files[@]} kernel image package(s) to sign with MOK."
-    local signed_count=0
-    for deb in "${deb_files[@]}"; do
-        local deb_name
-        deb_name="$(basename "$deb")"
-        echo "[*] Processing $deb_name..."
-        local tmp_dir
-        tmp_dir="$(mktemp -d -p "$DEB_DIR" .tmp_sign_XXXXXX)"
-
-        fakeroot dpkg-deb -R "$deb" "$tmp_dir"
-
-        local vmlinuz_list=()
-        for v in "$tmp_dir"/boot/vmlinuz-*; do
-            [[ "$v" == *".signed"* ]] && continue
-            [ -f "$v" ] && vmlinuz_list+=("$v")
-        done
-
-        if [ ${#vmlinuz_list[@]} -eq 0 ]; then
-            echo "    [!] Notice: No boot/vmlinuz-* found in $deb_name; skipping."
-            rm -rf "$tmp_dir"
-            continue
-        fi
-
-        for v in "${vmlinuz_list[@]}"; do
-            local v_base
-            v_base="$(basename "$v")"
-            echo "    • Signing $v_base with sbsign..."
-            sbsign --key "$KEY" --cert "$CERT" --output "${v}.signed" "$v"
-            mv "${v}.signed" "$v"
-            if command -v sbverify &>/dev/null; then
-                sbverify --list "$v" &>/dev/null || true
-                echo "    • Signature verified: $v_base is cryptographically signed."
-            fi
-        done
-
-        echo "    • Repacking $deb_name with fakeroot dpkg-deb -b..."
-        fakeroot dpkg-deb -b "$tmp_dir" "$deb"
-        rm -rf "$tmp_dir"
-
-        signed_count=$((signed_count + 1))
-        echo "    [✓] Successfully signed and repacked $deb_name!"
-    done
-
-    echo "======================================================="
-    echo "[✓] SUCCESS: Signed $signed_count .deb package(s) with MOK!"
-    echo "======================================================="
-
-    # Check enrollment status
-    if command -v mokutil &>/dev/null && [ -f "$user_mok_dir/MOK.der" ]; then
-        if ! mokutil --test-key "$user_mok_dir/MOK.der" &>/dev/null; then
-            echo ""
-            echo "[!] Notice: MOK key is not yet enrolled in UEFI NVRAM."
-            echo "    Run 'mokutil --import $user_mok_dir/MOK.der' to stage enrollment for next reboot."
-            echo ""
-        fi
+    LATEST_IMAGE_DEB=$(ls -t "${IMAGE_DEBS[@]}" | head -n1)
+    VMLINUZ_IN_DEB=$(dpkg-deb -c "$LATEST_IMAGE_DEB" | awk '{print $6}' | grep -E '^\./boot/vmlinuz-' | head -n1 || true)
+    if [[ -n "$VMLINUZ_IN_DEB" ]]; then
+        DETECTED_KVER="${VMLINUZ_IN_DEB#./boot/vmlinuz-}"
+        log_info "Detected kernel version from .deb payload: ${DETECTED_KVER}"
     fi
-}
 
-# ------------------------------------------------------------------------------
-# Entrypoint Dispatcher
-# ------------------------------------------------------------------------------
-case "$1" in
-    --secureboot|-s)
-        shift
-        sign_secureboot "$1"
-        ;;
-    --sign-deb-mok|-m)
-        shift
-        sign_debs_mok "$1"
-        ;;
-    --debs|-d)
-        shift
-        sign_debs "$1" "$2"
-        ;;
-    --help|-h)
-        show_usage
-        exit 0
-        ;;
-    *)
-        if [ "$#" -eq 0 ]; then
-            # Default to secureboot mode with auto-detection
-            sign_secureboot ""
-        else
-            # Backward-compatibility: if an argument like a kernel path or version is given
-            sign_secureboot "$1"
-        fi
-        ;;
-esac
+    log_info "Installing kernel .deb packages via dpkg -i..."
+    DEBIAN_FRONTEND=noninteractive dpkg -i "$LATEST_IMAGE_DEB" "${HEADER_DEBS[@]}" || {
+        log_warn "Resolving dependencies with apt-get install -f..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -f -y
+    }
+elif [[ "$ACTION" == "--sign-only" ]]; then
+    TARGET_KVER="${ARG3:-auto}"
+    MOK_PASS="$ARG4"
+    if [[ "$TARGET_KVER" != "auto" && -f "/boot/vmlinuz-${TARGET_KVER}" ]]; then
+        DETECTED_KVER="$TARGET_KVER"
+    fi
+else
+    log_err "Unknown action: ${ACTION}"
+    echo "Usage:"
+    echo "  sign-kernel.sh --status <output_dir>"
+    echo "  sign-kernel.sh --install-and-sign <output_dir> [mok_password]"
+    echo "  sign-kernel.sh --sign-only <output_dir> [kernel_version_or_auto] [mok_password]"
+    echo "  sign-kernel.sh --reset-and-recreate <output_dir> [mok_password]"
+    exit 1
+fi
+
+# Auto-detect newest /boot/vmlinuz-*cachy* if not already set
+if [[ -z "$DETECTED_KVER" ]]; then
+    NEWEST_VMLINUZ=$(ls -t /boot/vmlinuz-*cachy* 2>/dev/null | grep -v '\.old$' | grep -v '\.signed$' | head -n1 || true)
+    if [[ -z "$NEWEST_VMLINUZ" ]]; then
+        NEWEST_VMLINUZ=$(ls -t /boot/vmlinuz-* 2>/dev/null | grep -v '\.old$' | grep -v '\.signed$' | head -n1 || true)
+    fi
+    if [[ -z "$NEWEST_VMLINUZ" ]]; then
+        log_err "No /boot/vmlinuz-* kernel image found to sign!"
+        exit 1
+    fi
+    DETECTED_KVER="${NEWEST_VMLINUZ#/boot/vmlinuz-}"
+fi
+
+VMLINUZ_PATH="/boot/vmlinuz-${DETECTED_KVER}"
+if [[ ! -f "$VMLINUZ_PATH" ]]; then
+    log_err "Target kernel image ${VMLINUZ_PATH} not found!"
+    exit 1
+fi
+
+# 1. Ensure certificates exist in OUTPUT_DIR (and mirrored to SYS_MOK_DIR)
+generate_certificates_in_output_dir "false"
+install_persistent_postinst_hook
+
+# 2. Sign /boot/vmlinuz-<version> using the certificate in OUTPUT_DIR
+log_info "Signing ${VMLINUZ_PATH} using ${MOK_PEM}..."
+TMP_SIGNED="${VMLINUZ_PATH}.signed.tmp"
+rm -f "$TMP_SIGNED"
+sbsign --key "$MOK_PRIV" --cert "$MOK_PEM" --output "$TMP_SIGNED" "$VMLINUZ_PATH"
+mv -f "$TMP_SIGNED" "$VMLINUZ_PATH"
+chmod 644 "$VMLINUZ_PATH"
+
+# 3. Verify signature
+log_info "Verifying signature on ${VMLINUZ_PATH}..."
+sbverify --list "$VMLINUZ_PATH"
+sbverify --cert "$MOK_PEM" "$VMLINUZ_PATH"
+log_ok "Signature verified with ${MOK_PEM}!"
+
+# 4. Sign DKMS / out-of-tree modules if present
+sign_dkms_modules "$DETECTED_KVER"
+
+# 5. Update initramfs and GRUB
+log_info "Updating initramfs and GRUB for ${DETECTED_KVER}..."
+update-initramfs -u -k "$DETECTED_KVER"
+command -v update-grub >/dev/null 2>&1 && update-grub
+
+# 6. Check / Queue MOK Enrollment
+if command -v mokutil >/dev/null 2>&1; then
+    if mokutil --test-key "$MOK_DER" 2>&1 | grep -qi "is already enrolled"; then
+        log_ok "MOK_STATUS=ALREADY_ENROLLED"
+    elif [[ -n "$MOK_PASS" ]]; then
+        log_info "Queueing ${MOK_DER} for UEFI MOK enrollment..."
+        mokutil --revoke-import 2>/dev/null || true
+        printf "%s\n%s\n" "$MOK_PASS" "$MOK_PASS" | mokutil --import "$MOK_DER"
+        log_ok "MOK_STATUS=ENROLLMENT_QUEUED"
+    else
+        log_warn "MOK_STATUS=NEEDS_ENROLLMENT"
+    fi
+fi
+
+log_ok "ALL_DONE_KERNEL=${DETECTED_KVER}"
+exit 0

@@ -40,6 +40,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     sbsigntool \
     mokutil \
     openssl \
+    linux-base \
+    initramfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
 ENV DEBFULLNAME="CachyOS Debian Builder"

@@ -5,7 +5,10 @@ import shutil
 import urllib.request
 import re
 
+APP_VERSION = "1.10.b"
+
 class KernelManager:
+    APP_VERSION = APP_VERSION
     def __init__(self):
         self.releases_api = "https://api.github.com/repos/CachyOS/linux/releases?per_page=30"
         self.pkgbuild_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/PKGBUILD"
@@ -49,7 +52,17 @@ class KernelManager:
             'lld',
             'sbsigntool',
             'mokutil',
-            'openssl'
+            'openssl',
+            'linux-base',
+            'initramfs-tools'
+        ]
+
+        self.REQUIRED_SIGNING_DEPS = [
+            'sbsigntool',
+            'mokutil',
+            'openssl',
+            'linux-base',
+            'initramfs-tools'
         ]
 
         self.latest_version = None
@@ -139,13 +152,13 @@ class KernelManager:
 
         return info
 
-    def get_latest_cachy_version(self):
-        """Fetches the latest official CachyOS kernel version from CachyOS GitHub repositories."""
-        latest_version = None
-        latest_tag = None
-        download_url = None
-
-        # Method 1: Check official releases from CachyOS/linux (contains official pre-patched kernel tarballs)
+    def get_available_versions(self):
+        """
+        Fetches official CachyOS releases from GitHub.
+        Returns a list of dicts:
+        [{'version': '7.2.10-1', 'tag': 'cachyos-7.2.10-1', 'label': '7.2.10-1 (Stable)', 'is_experimental': False, 'download_url': '...'}, ...]
+        """
+        versions = []
         try:
             headers = {'User-Agent': 'Debian-CachyOS-Kernel-Updater'}
             response = requests.get(self.releases_api, headers=headers, timeout=12)
@@ -153,21 +166,57 @@ class KernelManager:
                 releases = response.json()
                 for rel in releases:
                     tag = rel.get('tag_name', '')
-                    # Pick the latest stable release (exclude -rc release candidates)
-                    if tag.startswith('cachyos-') and '-rc' not in tag:
-                        latest_tag = tag
-                        latest_version = tag.replace('cachyos-', '')
-                        for asset in rel.get('assets', []):
-                            asset_name = asset.get('name', '')
-                            if asset_name.endswith('.tar.gz') and not asset_name.endswith('.asc'):
-                                download_url = asset.get('browser_download_url')
-                                break
-                        if latest_version and download_url:
+                    if not tag.startswith('cachyos-'):
+                        continue
+                    ver = tag.replace('cachyos-', '')
+                    is_exp = ('-rc' in tag.lower() or rel.get('prerelease', False))
+                    dl_url = None
+                    for asset in rel.get('assets', []):
+                        aname = asset.get('name', '')
+                        if aname.endswith('.tar.gz') and not aname.endswith('.asc'):
+                            dl_url = asset.get('browser_download_url')
                             break
+                    if not dl_url:
+                        dl_url = f"https://github.com/CachyOS/linux/releases/download/{tag}/{tag}.tar.gz"
+                    
+                    label = f"{ver} (Experimental)" if is_exp else f"{ver} (Stable)"
+                    versions.append({
+                        'version': ver,
+                        'tag': tag,
+                        'label': label,
+                        'is_experimental': is_exp,
+                        'download_url': dl_url
+                    })
         except Exception as e:
-            print(f"Error fetching releases API: {e}")
+            print(f"Error fetching releases API in get_available_versions: {e}")
 
-        # Method 2: Check official CachyOS PKGBUILD from CachyOS/linux-cachyos master
+        # Fallback if GitHub API failed or offline
+        if not versions:
+            fallback_ver = "7.2.10-1"
+            fallback_tag = f"cachyos-{fallback_ver}"
+            versions.append({
+                'version': fallback_ver,
+                'tag': fallback_tag,
+                'label': f"{fallback_ver} (Stable)",
+                'is_experimental': False,
+                'download_url': f"https://github.com/CachyOS/linux/releases/download/{fallback_tag}/{fallback_tag}.tar.gz"
+            })
+
+        self.available_versions = versions
+        return versions
+
+    def get_latest_cachy_version(self):
+        """Fetches the latest official stable CachyOS kernel version."""
+        releases = self.get_available_versions()
+        latest_stable = next((r for r in releases if not r['is_experimental']), None)
+        
+        if latest_stable:
+            self.latest_version = latest_stable['version']
+            self.latest_tag = latest_stable['tag']
+            self.download_url = latest_stable['download_url']
+            return self.latest_version
+
+        # Fallback to PKGBUILD check if needed
         try:
             headers = {'User-Agent': 'Debian-CachyOS-Kernel-Updater'}
             r_pb = requests.get(self.pkgbuild_raw, headers=headers, timeout=10)
@@ -180,21 +229,21 @@ class KernelManager:
                     rel_num = tagrel.group(1) if tagrel else '1'
                     pkg_ver = f"{major.group(1)}.{minor.group(1)}-{rel_num}"
                     pkg_tag = f"cachyos-{pkg_ver}"
-                    
-                    # If releases API failed or is older, use PKGBUILD version
-                    if not latest_version:
-                        latest_version = pkg_ver
-                        latest_tag = pkg_tag
-                        download_url = f"https://github.com/CachyOS/linux/releases/download/{pkg_tag}/{pkg_tag}.tar.gz"
+                    self.latest_version = pkg_ver
+                    self.latest_tag = pkg_tag
+                    self.download_url = f"https://github.com/CachyOS/linux/releases/download/{pkg_tag}/{pkg_tag}.tar.gz"
+                    return self.latest_version
         except Exception as e:
             print(f"Error checking PKGBUILD: {e}")
 
-        self.latest_version = latest_version or "Unknown"
-        self.latest_tag = latest_tag or f"cachyos-{self.latest_version}"
-        self.download_url = download_url or (
-            f"https://github.com/CachyOS/linux/releases/download/{self.latest_tag}/{self.latest_tag}.tar.gz"
-            if latest_tag else None
-        )
+        if releases:
+            self.latest_version = releases[0]['version']
+            self.latest_tag = releases[0]['tag']
+            self.download_url = releases[0]['download_url']
+        else:
+            self.latest_version = "7.2.10-1"
+            self.latest_tag = "cachyos-7.2.10-1"
+            self.download_url = f"https://github.com/CachyOS/linux/releases/download/{self.latest_tag}/{self.latest_tag}.tar.gz"
 
         return self.latest_version
 
@@ -361,9 +410,42 @@ class KernelManager:
             progress_callback(f"\n[✓] All {mode_str} dependencies ready!\n")
         return True
 
-    def get_output_kernel_dir(self, is_native=False):
+    def check_signing_dependencies(self):
+        """Returns a list of missing host packages required for Secure Boot kernel signing."""
+        missing = []
+        for pkg in self.REQUIRED_SIGNING_DEPS:
+            try:
+                res = subprocess.run(
+                    ['dpkg-query', '-W', '-f=${Status}', pkg],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if 'install ok installed' not in res.stdout:
+                    missing.append(pkg)
+            except Exception:
+                missing.append(pkg)
+        return missing
+
+    def ensure_signing_dependencies(self, progress_callback=None):
+        """Verifies that host signing packages are installed, installing them via pkexec apt-get if missing."""
+        missing = self.check_signing_dependencies()
+        if not missing:
+            return True
+        if progress_callback:
+            progress_callback(f"[*] Installing missing host signing dependencies via pkexec: {', '.join(missing)}")
+        cmd = ['pkexec', 'apt-get', 'install', '-y'] + missing
+        try:
+            self._run_cmd(cmd, progress_callback=progress_callback)
+            return True
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"[!] Failed to install signing dependencies: {e}")
+            return False
+
+    def get_output_kernel_dir(self, is_native=False, version=None):
         """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-]debian."""
-        ver = self.latest_version or "latest"
+        ver = version or self.latest_version or "latest"
         tag = "native-debian" if is_native else "debian"
         folder_name = f"Linux-kernel-CachyOS-{ver}-{tag}"
         return os.path.join(self.output_base_dir, folder_name)
@@ -465,6 +547,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     sbsigntool \\
     mokutil \\
     openssl \\
+    linux-base \\
+    initramfs-tools \\
     && rm -rf /var/lib/apt/lists/*
 
 ENV DEBFULLNAME="CachyOS Debian Builder"
@@ -577,13 +661,25 @@ WORKDIR /workspace
             if progress_callback:
                 progress_callback(f"[!] Warning: could not clean {self.download_dir}: {e}\n")
 
-    def download_kernel(self, progress_callback=None):
+    def download_kernel(self, version=None, tag=None, download_url=None, progress_callback=None):
         """Downloads the official pre-patched CachyOS kernel source and configuration."""
-        if not self.latest_version or not self.download_url:
+        if version and tag and download_url:
+            self.latest_version = version
+            self.latest_tag = tag
+            self.download_url = download_url
+        elif tag:
+            self.latest_tag = tag
+            self.latest_version = version or tag.replace('cachyos-', '')
+            self.download_url = download_url or f"https://github.com/CachyOS/linux/releases/download/{self.latest_tag}/{self.latest_tag}.tar.gz"
+        elif version:
+            self.latest_version = version
+            self.latest_tag = f"cachyos-{version}"
+            self.download_url = download_url or f"https://github.com/CachyOS/linux/releases/download/{self.latest_tag}/{self.latest_tag}.tar.gz"
+        elif not self.latest_version or not self.download_url:
             self.get_latest_cachy_version()
 
         if not self.download_url:
-            raise Exception("Unable to find download URL for latest CachyOS kernel.")
+            raise Exception("Unable to find download URL for CachyOS kernel.")
 
         os.makedirs(self.download_dir, exist_ok=True)
 
@@ -687,15 +783,41 @@ WORKDIR /workspace
 
         return extracted_dir
 
-    def compile_kernel(self, kernel_dir, progress_callback=None, use_container=False, optimize_for_system=False):
+    def compile_kernel(
+        self,
+        kernel_dir,
+        progress_callback=None,
+        stage_callback=None,
+        use_container=False,
+        optimize_for_system=None,
+        use_localmodconfig=True,
+        strip_debug_symbols=True,
+        cpu_scheduler='bore',
+        compiler_lto='gcc_none',
+        cpu_arch='generic',
+        tick_rate='1000',
+        tickless=True,
+        threads=None
+    ):
         """Prepares configuration and compiles the kernel into Debian packages."""
-        if progress_callback:
-            progress_callback("Setting up kernel configuration for Debian...")
+        # Handle backwards compatibility for optimize_for_system flag
+        if optimize_for_system is True:
+            cpu_arch = 'native'
+            use_localmodconfig = True
+        elif optimize_for_system is False and cpu_arch == 'generic':
+            pass
+
+        is_native = (cpu_arch == 'native')
+
+        if stage_callback:
+            stage_callback(3, "Sanitizing configuration for Debian stability...")
+        elif progress_callback:
+            progress_callback("Stage 3: Setting up and sanitizing kernel configuration for Debian...")
 
         config_dst = os.path.join(kernel_dir, ".config")
 
         # Recover saved config if available, otherwise use running CachyOS kernel or downloaded official config
-        active_saved_cfg = self.saved_native_config_path if optimize_for_system else self.saved_config_path
+        active_saved_cfg = self.saved_native_config_path if is_native else self.saved_config_path
         if os.path.exists(active_saved_cfg) and os.path.getsize(active_saved_cfg) > 1000:
             if progress_callback:
                 progress_callback(f"[✓] Recovering previously saved kernel configuration from {active_saved_cfg}...")
@@ -729,7 +851,7 @@ WORKDIR /workspace
         # 1. Remove Debian/Canonical hardcoded certificate paths (Prevents Makefile:2207 crash)
         # 2. Bypass build-time module signing (avoids ephemeral key/cert failures in containers)
         # 3. Keep signature verification support compiled into the kernel for post-build user signing
-        # 4. Disable heavy DWARF/BTF debug symbols by default (prevents 30GB+ disk exhaustion & pahole crashes)
+        # 4. Disable heavy DWARF/BTF debug symbols if strip_debug_symbols is True (prevents 35GB disk exhaustion & OOM crashes)
         # 5. Disable strict -Werror and Rust (prevents compiler version mismatch failures on Debian)
         config_sanitize_cmd = [
             'scripts/config',
@@ -741,33 +863,56 @@ WORKDIR /workspace
             '--enable', 'MODULE_SIG',
             '--enable', 'MODULE_SIG_SHA512',
             '--enable', 'KEXEC_SIG',
-            '--disable', 'DEBUG_INFO_BTF',
-            '--disable', 'DEBUG_INFO_DWARF4',
-            '--disable', 'DEBUG_INFO_DWARF5',
-            '--disable', 'DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT',
-            '--enable', 'DEBUG_INFO_NONE',
             '--disable', 'WERROR',
             '--disable', 'DRM_WERROR',
             '--disable', 'RUST',
             '--disable', 'INTEL_TDX_HOST',
             '--disable', 'KVM_INTEL_TDX',
         ]
+
+        if strip_debug_symbols:
+            config_sanitize_cmd.extend([
+                '--disable', 'DEBUG_INFO_BTF',
+                '--disable', 'DEBUG_INFO_DWARF4',
+                '--disable', 'DEBUG_INFO_DWARF5',
+                '--disable', 'DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT',
+                '--enable', 'DEBUG_INFO_NONE',
+            ])
+        else:
+            config_sanitize_cmd.extend([
+                '--disable', 'DEBUG_INFO_NONE',
+                '--enable', 'DEBUG_INFO_DWARF5',
+            ])
+
         self._run_cmd(config_sanitize_cmd, cwd=kernel_dir, progress_callback=None)
 
-        # Check whether building with Clang/LLVM or GCC
-        use_llvm = False
-        if os.path.exists(config_dst):
-            try:
-                with open(config_dst, 'r') as cf:
-                    cfg_text = cf.read()
-                    if 'CONFIG_LTO_CLANG_THIN=y' in cfg_text or 'CONFIG_LTO_CLANG_FULL=y' in cfg_text:
-                        use_llvm = True
-            except Exception:
-                pass
+        # 2. CPU Scheduler Configuration (Default: BORE)
+        if cpu_scheduler == 'bore':
+            self._run_cmd(['scripts/config', '--enable', 'CONFIG_SCHED_BORE'], cwd=kernel_dir, progress_callback=None)
+        else:
+            self._run_cmd(['scripts/config', '--disable', 'CONFIG_SCHED_BORE'], cwd=kernel_dir, progress_callback=None)
 
-        if not use_llvm:
-            # If building with GCC, ensure Clang LTO is disabled first
-            self._run_cmd(['scripts/config', '--disable', 'LTO_CLANG_THIN', '--enable', 'LTO_NONE'], cwd=kernel_dir, progress_callback=None)
+        # 3. Compiler & LTO Selection
+        use_llvm = compiler_lto.startswith('clang')
+        if compiler_lto in ('gcc_none', 'clang_none'):
+            self._run_cmd(['scripts/config', '--disable', 'LTO_CLANG_THIN', '--disable', 'LTO_CLANG_FULL', '--enable', 'LTO_NONE'], cwd=kernel_dir, progress_callback=None)
+        elif compiler_lto == 'clang_thin':
+            self._run_cmd(['scripts/config', '--enable', 'LTO_CLANG', '--enable', 'LTO_CLANG_THIN', '--disable', 'LTO_NONE', '--disable', 'LTO_CLANG_FULL'], cwd=kernel_dir, progress_callback=None)
+        elif compiler_lto == 'clang_full':
+            self._run_cmd(['scripts/config', '--enable', 'LTO_CLANG', '--enable', 'LTO_CLANG_FULL', '--disable', 'LTO_NONE', '--disable', 'LTO_CLANG_THIN'], cwd=kernel_dir, progress_callback=None)
+
+        # 4. Tick Rate & Preemption (Default: 1000 Hz + Full Tickless Idle)
+        if tick_rate == '1000':
+            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_300', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--enable', 'HZ_1000', '--set-val', 'HZ', '1000'], cwd=kernel_dir, progress_callback=None)
+        elif tick_rate == '500':
+            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_300', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_500', '--set-val', 'HZ', '500'], cwd=kernel_dir, progress_callback=None)
+        elif tick_rate == '300':
+            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_300', '--set-val', 'HZ', '300'], cwd=kernel_dir, progress_callback=None)
+        elif tick_rate == '250':
+            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_300', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_250', '--set-val', 'HZ', '250'], cwd=kernel_dir, progress_callback=None)
+
+        if tickless:
+            self._run_cmd(['scripts/config', '--enable', 'NO_HZ_IDLE', '--enable', 'NO_HZ', '--enable', 'NO_HZ_COMMON', '--disable', 'HZ_PERIODIC'], cwd=kernel_dir, progress_callback=None)
 
         # Prepare container runner prefix if container build is selected
         container_prefix = []
@@ -795,12 +940,13 @@ WORKDIR /workspace
                 self.container_image_tag
             ]
 
-        # 4. Hardware Optimization (Compile for my system) or Generic Debian branding
-        if optimize_for_system:
-            hw = self.detect_hardware()
+        hw = self.detect_hardware()
+
+        # 5. Hardware Drivers: Current System Config (localmodconfig + safe drivers base)
+        if use_localmodconfig:
             if progress_callback:
                 progress_callback("\n=======================================================")
-                progress_callback("[*] 'Compile for My System' Hardware Auto-Detection:")
+                progress_callback("[*] 'Current System Hardware Config' (localmodconfig):")
                 progress_callback(f"    • CPU: {hw['cpu_model']} ({hw['threads']} threads)")
                 progress_callback(f"    • Vendor: {hw['vendor']} | Chassis: {'Laptop (Battery)' if hw['is_laptop'] else 'Desktop/Workstation'}")
                 if hw['manufacturer'] != 'Generic':
@@ -809,7 +955,6 @@ WORKDIR /workspace
                 progress_callback(f"    • Active Modules: {len(hw['loaded_modules'])} loaded hardware drivers detected")
                 progress_callback("=======================================================\n")
 
-            # Snapshot host lsmod into download_dir for streamline_config / localmodconfig
             lsmod_host_file = os.path.join(self.download_dir, "host_lsmod.txt")
             try:
                 lsmod_raw = subprocess.check_output(['lsmod'], text=True)
@@ -820,7 +965,7 @@ WORKDIR /workspace
                     progress_callback(f"[!] Warning: failed to export host lsmod: {e}")
 
             if progress_callback:
-                progress_callback("[*] Applying 'make localmodconfig' (stripping unneeded hardware drivers)...")
+                progress_callback("[*] Applying 'make localmodconfig' to match machine hardware...")
 
             try:
                 if use_container:
@@ -836,13 +981,13 @@ WORKDIR /workspace
                         progress_callback=progress_callback
                     )
                 if progress_callback:
-                    progress_callback("[✓] Unused hardware drivers successfully trimmed!")
+                    progress_callback("[✓] Hardware drivers tailored to current machine.")
             except Exception as e:
                 if progress_callback:
-                    progress_callback(f"[!] Warning: localmodconfig encountered non-fatal note: {e}")
+                    progress_callback(f"[!] Warning: localmodconfig note: {e}")
 
             if progress_callback:
-                progress_callback("[*] Enforcing hardware safety baselines & CPU native instructions...")
+                progress_callback("[*] Enforcing hardware safety baselines for storage and filesystems...")
 
             safeties = [
                 # Essential filesystems
@@ -864,23 +1009,7 @@ WORKDIR /workspace
                 ('enable', 'CONFIG_HID'),
                 ('enable', 'CONFIG_HID_GENERIC'),
                 ('enable', 'CONFIG_USB_HID'),
-                # Native CPU instruction set (-march=native)
-                ('enable', 'CONFIG_X86_NATIVE_CPU'),
-                ('disable', 'CONFIG_MGENERIC_CPU'),
             ]
-
-            # CPU Vendor tuning
-            if 'intel' in hw['vendor'].lower():
-                safeties.extend([
-                    ('enable', 'CONFIG_X86_INTEL_PSTATE'),
-                    ('enable', 'CONFIG_INTEL_IDLE'),
-                    ('enable', 'CONFIG_MNATIVE_INTEL'),
-                ])
-            elif 'amd' in hw['vendor'].lower():
-                safeties.extend([
-                    ('enable', 'CONFIG_X86_AMD_PSTATE'),
-                    ('enable', 'CONFIG_MNATIVE_AMD'),
-                ])
 
             # Laptop / Chassis tuning
             if hw['is_laptop']:
@@ -902,20 +1031,33 @@ WORKDIR /workspace
                 flag = f'--{action}'
                 self._run_cmd(['scripts/config', flag, opt], cwd=kernel_dir, progress_callback=None)
 
-            # Cap NR_CPUS reasonably instead of 8192
             nr_cpus = max(16, min(128, hw['threads'] * 2))
             self._run_cmd(['scripts/config', '--set-val', 'CONFIG_NR_CPUS', str(nr_cpus)], cwd=kernel_dir, progress_callback=None)
 
-            # Localversion with native branding
+        # 6. CPU Microarchitecture Optimization
+        if cpu_arch == 'native':
+            self._run_cmd(['scripts/config', '--disable', 'CONFIG_MGENERIC_CPU', '--enable', 'CONFIG_X86_NATIVE_CPU'], cwd=kernel_dir, progress_callback=None)
+            if 'intel' in hw['vendor'].lower():
+                self._run_cmd(['scripts/config', '--enable', 'CONFIG_X86_INTEL_PSTATE', '--enable', 'CONFIG_INTEL_IDLE', '--enable', 'CONFIG_MNATIVE_INTEL'], cwd=kernel_dir, progress_callback=None)
+            elif 'amd' in hw['vendor'].lower():
+                self._run_cmd(['scripts/config', '--enable', 'CONFIG_X86_AMD_PSTATE', '--enable', 'CONFIG_MNATIVE_AMD'], cwd=kernel_dir, progress_callback=None)
             self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-native-debian'], cwd=kernel_dir, progress_callback=None)
-
             if progress_callback:
-                progress_callback(f"[✓] System profile tuned: NR_CPUS={nr_cpus}, -march=native enabled, localversion=-cachyos-native-debian")
-        else:
-            # Standard generic Debian branding
+                progress_callback("[✓] CPU Architecture: Native (-march=native enabled, localversion=-cachyos-native-debian)")
+        elif cpu_arch == 'x86-64-v3':
+            self._run_cmd(['scripts/config', '--enable', 'CONFIG_GENERIC_CPU', '--disable', 'CONFIG_X86_NATIVE_CPU'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['scripts/config', '--set-val', 'CONFIG_X86_64_VERSION', '3'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-v3-debian'], cwd=kernel_dir, progress_callback=None)
+            if progress_callback:
+                progress_callback("[✓] CPU Architecture: Generic x86-64-v3 (AVX2, localversion=-cachyos-v3-debian)")
+        else: # generic (x86-64-v2 safe default)
+            self._run_cmd(['scripts/config', '--enable', 'CONFIG_GENERIC_CPU', '--disable', 'CONFIG_X86_NATIVE_CPU'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['scripts/config', '--set-val', 'CONFIG_X86_64_VERSION', '2'], cwd=kernel_dir, progress_callback=None)
             self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'], cwd=kernel_dir, progress_callback=None)
+            if progress_callback:
+                progress_callback("[✓] CPU Architecture: Generic x86-64 / x86-64-v2 (Safe for all modern CPUs)")
 
-        # 5. Update configuration for the new kernel version non-interactively
+        # 7. Update configuration for the new kernel version non-interactively
         toolchain_flags = ['LLVM=1', 'LLVM_IAS=1'] if use_llvm else []
         olddef_cmd = ['make'] + toolchain_flags + ['olddefconfig']
         if use_container:
@@ -923,9 +1065,9 @@ WORKDIR /workspace
         else:
             self._run_cmd(olddef_cmd, cwd=kernel_dir, progress_callback=progress_callback)
 
-        # 6. Save the generated configuration to persistent storage for future updates
+        # 8. Save the generated configuration to persistent storage for future updates
         try:
-            target_saved_cfg = self.saved_native_config_path if optimize_for_system else self.saved_config_path
+            target_saved_cfg = self.saved_native_config_path if is_native else self.saved_config_path
             os.makedirs(os.path.dirname(target_saved_cfg), exist_ok=True)
             shutil.copy(config_dst, target_saved_cfg)
             if progress_callback:
@@ -934,7 +1076,7 @@ WORKDIR /workspace
             if progress_callback:
                 progress_callback(f"[!] Warning: could not save configuration: {e}")
 
-        # 7. Clean stale packaging state (Step 4.1: removes leftover debian/ directory)
+        # 9. Clean stale packaging state
         debian_pkg_dir = os.path.join(kernel_dir, "debian")
         if os.path.exists(debian_pkg_dir):
             if progress_callback:
@@ -945,7 +1087,7 @@ WORKDIR /workspace
                 if progress_callback:
                     progress_callback(f"[!] Warning: could not remove debian directory: {e}")
 
-        # 8. Packaging environment variables (Step 4.2)
+        # 10. Packaging environment variables and thread allocation
         packaging_env = {
             'DEBFULLNAME': 'CachyOS Debian Builder',
             'DEBEMAIL': 'builder@localhost',
@@ -954,14 +1096,19 @@ WORKDIR /workspace
             'DPKG_FLAGS': '-d -uc -us',
         }
 
-        cores = str(os.cpu_count() or 4)
+        # Default thread count: max(1, os.cpu_count() - 1)
+        build_threads = int(threads) if threads else max(1, (os.cpu_count() or 4) - 1)
+        
+        if stage_callback:
+            stage_callback(4, f"Compiling kernel packages ({build_threads} threads, 20–60 min)...")
+
         if progress_callback:
             mode_desc = f"inside Debian container ({self.get_container_engine()})" if use_container else "on host system"
             tc_desc = " (Clang/LLVM)" if use_llvm else " (GCC)"
-            progress_callback(f"Starting kernel compilation {mode_desc}{tc_desc} using {cores} CPU threads...")
-            progress_callback("Running 'make bindeb-pkg' (Debian package build)...")
+            progress_callback(f"\n[*] Starting kernel compilation {mode_desc}{tc_desc} using {build_threads} CPU threads...")
+            progress_callback(f"    Running 'make -j{build_threads} bindeb-pkg'...")
 
-        bindeb_cmd = ['make', f'-j{cores}'] + toolchain_flags + ['bindeb-pkg', 'DPKG_FLAGS=-d -uc -us']
+        bindeb_cmd = ['make', f'-j{build_threads}'] + toolchain_flags + ['bindeb-pkg', 'DPKG_FLAGS=-d -uc -us']
 
         try:
             # Compile and generate .deb packages
@@ -978,8 +1125,8 @@ WORKDIR /workspace
                 except Exception:
                     pass
 
-        # 7. Collect all generated deb packages and save to ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-]debian
-        output_dir = self.get_output_kernel_dir(is_native=optimize_for_system)
+        # 11. Collect all generated deb packages and save to ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-]debian
+        output_dir = self.get_output_kernel_dir(is_native=is_native)
         os.makedirs(output_dir, exist_ok=True)
         self.last_output_dir = output_dir
 
@@ -1069,10 +1216,117 @@ echo "=========================================================="
         if progress_callback:
             progress_callback(f"\n[✓] Compilation completed successfully! Saved {copied_count} artifact(s) to:\n    {output_dir}")
 
-    def install_kernel(self, progress_callback=None):
-        """Installs the compiled .deb packages using pkexec."""
+    def get_kernel_version_from_deb(self, deb_path: str) -> str:
+        """
+        Extracts the exact kernel version string from a linux-image-*.deb package.
+        E.g. linux-image-7.2.10-cachyos-debian -> 7.2.10-cachyos-debian.
+        """
+        try:
+            res = subprocess.run(
+                ['dpkg-deb', '-f', deb_path, 'Package'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            pkg = res.stdout.strip()
+            if pkg.startswith('linux-image-'):
+                return pkg[len('linux-image-'):]
+        except Exception:
+            pass
+        # Fallback to regex on filename
+        fname = os.path.basename(deb_path)
+        m = re.search(r'linux-image-([0-9]+\.[0-9]+\.[0-9]+-[^._]+)', fname)
+        if m:
+            return m.group(1)
+        return ""
+
+    def get_sign_script_path(self):
+        """Locates the atomic root helper script sign-kernel.sh."""
+        candidates = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign-kernel.sh"),
+            "/usr/share/cachy-kernel-updater/sign-kernel.sh",
+            os.path.expanduser("~/Projects/debian-cachy-kernel-updater/sign-kernel.sh")
+        ]
+        for p in candidates:
+            if os.path.isfile(p):
+                return p
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign-kernel.sh")
+
+    def get_mok_status(self, output_dir: str = None) -> dict:
+        """
+        Inspects UEFI Secure Boot state and MOK key existence in the designated output_dir.
+        Invokes: bash sign-kernel.sh --status <output_dir>
+        Returns a dict containing state flags and certificate paths.
+        """
+        target_dir = output_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
+        if not target_dir:
+            target_dir = self.output_base_dir
+
+        script_path = self.get_sign_script_path()
+        sb_state = "disabled"
+        key_exists = "no"
+        key_enrolled = "no"
+
+        if os.path.isfile(script_path):
+            try:
+                res = subprocess.run(
+                    ['bash', script_path, '--status', target_dir],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=8
+                )
+                for line in res.stdout.splitlines():
+                    if line.startswith("SB_STATE="):
+                        sb_state = line.split("=", 1)[1].strip()
+                    elif line.startswith("KEY_EXISTS="):
+                        key_exists = line.split("=", 1)[1].strip()
+                    elif line.startswith("KEY_ENROLLED="):
+                        key_enrolled = line.split("=", 1)[1].strip()
+                    elif line.startswith("CERT_DIR="):
+                        target_dir = line.split("=", 1)[1].strip()
+            except Exception as e:
+                print(f"Error checking status via sign-kernel.sh: {e}")
+
+        # Fallback check if script execution failed
+        if sb_state == "disabled" and shutil.which("mokutil"):
+            try:
+                res = subprocess.run(['mokutil', '--sb-state'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+                if 'SecureBoot enabled' in res.stdout:
+                    sb_state = "enabled"
+            except Exception:
+                pass
+
+        priv_path = os.path.join(target_dir, "MOK.priv")
+        der_path = os.path.join(target_dir, "MOK.der")
+        pem_path = os.path.join(target_dir, "MOK.pem")
+        if os.path.isfile(der_path) and os.path.isfile(priv_path) and os.path.isfile(pem_path):
+            key_exists = "yes"
+
+        return {
+            "secure_boot_enabled": (sb_state == "enabled"),
+            "secure_boot": (sb_state == "enabled"),
+            "state": sb_state,
+            "key_exists": (key_exists == "yes"),
+            "key_enrolled": (key_enrolled == "yes"),
+            "cert_dir": target_dir,
+            "priv_path": priv_path,
+            "der_path": der_path,
+            "pem_path": pem_path
+        }
+
+    def get_secure_boot_and_mok_status(self, output_dir: str = None) -> dict:
+        """Alias for get_mok_status."""
+        return self.get_mok_status(output_dir)
+
+    def get_secure_boot_status(self, output_dir: str = None) -> bool:
+        """Returns True if UEFI Secure Boot is active."""
+        return self.get_mok_status(output_dir)["secure_boot_enabled"]
+
+    def find_deb_directory(self):
+        """Locates the directory containing compiled linux-image-*.deb packages."""
         import glob
-        
         search_dirs = []
         if self.last_output_dir and os.path.isdir(self.last_output_dir):
             search_dirs.append(self.last_output_dir)
@@ -1082,45 +1336,247 @@ echo "=========================================================="
         output_dir_generic = self.get_output_kernel_dir(is_native=False)
         if os.path.isdir(output_dir_generic) and output_dir_generic not in search_dirs:
             search_dirs.append(output_dir_generic)
-        if self.download_dir not in search_dirs:
+        if os.path.isdir(self.download_dir) and self.download_dir not in search_dirs:
             search_dirs.append(self.download_dir)
-
-        deb_files = []
-        source_dir = None
-        for sdir in search_dirs:
-            candidates = glob.glob(os.path.join(sdir, "linux-image-*.deb"))
-            candidates += glob.glob(os.path.join(sdir, "linux-headers-*.deb"))
-            candidates = [f for f in candidates if '-dbg' not in f]
-            if candidates:
-                deb_files = candidates
-                source_dir = sdir
-                break
-
-        if not deb_files:
-            if progress_callback:
-                progress_callback("Error: No linux-image or linux-headers .deb files found in output or build directories.")
-            return False
-
-        if progress_callback:
-            progress_callback(f"Installing packages from: {source_dir}")
-            progress_callback(f"Found packages: {[os.path.basename(f) for f in deb_files]}")
-            progress_callback("Requesting root permissions via pkexec to install packages...")
-
-        cmd = ['pkexec', 'dpkg', '-i'] + deb_files
-        try:
-            self._run_cmd(cmd, cwd=source_dir, progress_callback=progress_callback)
-            if progress_callback:
-                progress_callback("Installation successful! Updating GRUB...")
-            # Ensure grub is updated
+        if os.path.isdir(self.output_base_dir):
             try:
-                self._run_cmd(['pkexec', 'update-grub'], cwd=source_dir, progress_callback=progress_callback)
+                entries = sorted(
+                    [os.path.join(self.output_base_dir, d) for d in os.listdir(self.output_base_dir)],
+                    key=os.path.getmtime,
+                    reverse=True
+                )
+                for full_p in entries:
+                    if os.path.isdir(full_p) and full_p not in search_dirs:
+                        search_dirs.append(full_p)
             except Exception:
                 pass
-            return True
+
+        for sdir in search_dirs:
+            candidates = glob.glob(os.path.join(sdir, "linux-image-*.deb"))
+            candidates = [f for f in candidates if '-dbg' not in f]
+            if candidates:
+                return sdir
+        return None
+
+    def reset_and_recreate_mok_keys(self, output_dir: str = None, mok_password: str = "", log_callback=None) -> tuple:
+        """
+        Cancels any previous MOK enrollment (mokutil --revoke-import), deletes old MOK keys,
+        generates a fresh 2048-bit RSA keypair in output_dir, re-signs the installed kernel in /boot,
+        and queues the new MOK.der for enrollment in UEFI NVRAM.
+        Invokes in a single atomic privileged transaction:
+          pkexec bash sign-kernel.sh --reset-and-recreate <output_dir> [mok_password]
+        Returns: (success: bool, mok_status: str)
+        """
+        target_dir = output_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
+        if not target_dir:
+            target_dir = self.output_base_dir
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception:
+            pass
+
+        script_path = self.get_sign_script_path()
+        if not os.path.isfile(script_path):
+            if log_callback:
+                log_callback(f"[!] Error: sign-kernel.sh not found at {script_path}")
+            return False, "SCRIPT_NOT_FOUND"
+
+        cmd = ["pkexec", "bash", script_path, "--reset-and-recreate", target_dir]
+        if mok_password:
+            cmd.append(mok_password)
+
+        if log_callback:
+            log_callback("\n=======================================================")
+            log_callback("[*] Resetting & Recreating MOK Keys from Scratch...")
+            log_callback(f"    Output & Certificate Directory: {target_dir}")
+            log_callback(f"    Privileged Helper: {script_path}")
+            log_callback("=======================================================\n")
+
+        mok_status = "UNKNOWN"
+        try:
+            def stream_handler(line):
+                nonlocal mok_status
+                if "MOK_STATUS=" in line:
+                    for token in line.split():
+                        if token.startswith("MOK_STATUS="):
+                            mok_status = token.split("=", 1)[1].strip()
+                if log_callback:
+                    log_callback(line)
+
+            self._run_cmd(cmd, cwd=target_dir, progress_callback=stream_handler)
+            if log_callback:
+                log_callback("\n[✓] MOK keys reset and recreated successfully in output folder!\n")
+            return True, mok_status
         except Exception as e:
-            if progress_callback:
-                progress_callback(f"Installation failed: {e}")
-            return False
+            if log_callback:
+                log_callback(f"\n[!] Reset and recreate MOK keys failed: {e}\n")
+            return False, f"FAILED: {e}"
+
+    def install_and_sign_kernel_debs(self, deb_dir: str = None, sign_enabled: bool = True, mok_password: str = "", log_callback=None) -> tuple:
+        """
+        Installs built Debian kernel packages and optionally signs them for UEFI Secure Boot.
+        If sign_enabled is True, invokes:
+          pkexec bash sign-kernel.sh --install-and-sign <deb_dir> [mok_password]
+        in a single atomic privileged transaction.
+        If sign_enabled is False, installs via pkexec dpkg -i without signing.
+        Returns: (success: bool, mok_status: str)
+        """
+        target_dir = deb_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
+        if not target_dir or not os.path.isdir(target_dir):
+            if log_callback:
+                log_callback("Error: No linux-image-*.deb packages found in output or build directories.")
+            return False, "NO_PACKAGES_FOUND"
+
+        script_path = self.get_sign_script_path()
+        if not os.path.isfile(script_path):
+            if log_callback:
+                log_callback(f"[!] Error: sign-kernel.sh not found at {script_path}")
+            return False, "SCRIPT_NOT_FOUND"
+
+        if sign_enabled:
+            cmd = ["pkexec", "bash", script_path, "--install-and-sign", target_dir]
+            if mok_password:
+                cmd.append(mok_password)
+
+            if log_callback:
+                log_callback("\n=======================================================")
+                log_callback("[*] Starting Single-Transaction Kernel Install & UEFI Secure Boot Signing...")
+                log_callback(f"    Source Folder: {target_dir}")
+                log_callback(f"    Privileged Helper: {script_path}")
+                log_callback("=======================================================\n")
+
+            mok_status = "UNKNOWN"
+            try:
+                def stream_handler(line):
+                    nonlocal mok_status
+                    if "MOK_STATUS=" in line:
+                        for token in line.split():
+                            if token.startswith("MOK_STATUS="):
+                                mok_status = token.split("=", 1)[1].strip()
+                    if log_callback:
+                        log_callback(line)
+
+                self._run_cmd(cmd, cwd=target_dir, progress_callback=stream_handler)
+                if log_callback:
+                    log_callback("\n[✓] Package installation and Secure Boot signing completed successfully!\n")
+                return True, mok_status
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"\n[!] Installation and signing failed: {e}\n")
+                return False, f"FAILED: {e}"
+        else:
+            # Install without signing
+            import glob
+            deb_files = glob.glob(os.path.join(target_dir, "linux-image-*.deb"))
+            deb_files += glob.glob(os.path.join(target_dir, "linux-headers-*.deb"))
+            deb_files = [f for f in deb_files if '-dbg' not in f]
+            if not deb_files:
+                if log_callback:
+                    log_callback("Error: No .deb files found to install.")
+                return False, "NO_DEBS"
+
+            if log_callback:
+                log_callback(f"[*] Installing packages without signing via pkexec dpkg -i: {[os.path.basename(f) for f in deb_files]}")
+
+            cmd = ['pkexec', 'sh', '-c', 'dpkg -i "$@" && update-grub', '--'] + deb_files
+            try:
+                self._run_cmd(cmd, cwd=target_dir, progress_callback=log_callback)
+                if log_callback:
+                    log_callback("\n[✓] Packages installed successfully!\n")
+                return True, "INSTALLED_NO_SIGN"
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"\n[!] Installation failed: {e}\n")
+                return False, f"FAILED: {e}"
+
+    def install_kernel(self, progress_callback=None, sign_after_install=True, mok_password=""):
+        """Convenience wrapper for install_and_sign_kernel_debs returning bool."""
+        success, _ = self.install_and_sign_kernel_debs(
+            deb_dir=None,
+            sign_enabled=sign_after_install,
+            mok_password=mok_password,
+            log_callback=progress_callback
+        )
+        return success
+
+    def sign_existing_installed_kernel(self, kernel_version: str = "auto", mok_password: str = "", output_dir: str = None, log_callback=None) -> tuple:
+        """
+        Signs the currently installed /boot/vmlinuz-* and out-of-tree DKMS modules using MOK.
+        Invokes in a single atomic privileged transaction:
+          pkexec bash sign-kernel.sh --sign-only <output_dir> [kernel_version] [mok_password]
+        Returns: (success: bool, mok_status: str)
+        """
+        script_path = self.get_sign_script_path()
+        if not os.path.isfile(script_path):
+            if log_callback:
+                log_callback(f"[!] Error: sign-kernel.sh not found at {script_path}")
+            return False, "SCRIPT_NOT_FOUND"
+
+        target_dir = output_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
+        if not target_dir:
+            target_dir = self.output_base_dir
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception:
+            pass
+
+        kver = kernel_version or "auto"
+        cmd = ["pkexec", "bash", script_path, "--sign-only", target_dir, kver]
+        if mok_password:
+            cmd.append(mok_password)
+
+        if log_callback:
+            log_callback("\n=======================================================")
+            log_callback(f"[*] Initiating Secure Boot Signing for installed kernel ({kver})...")
+            log_callback(f"    Output & Certificate Directory: {target_dir}")
+            log_callback(f"    Privileged Helper: {script_path}")
+            log_callback("=======================================================\n")
+
+        mok_status = "UNKNOWN"
+        try:
+            def stream_handler(line):
+                nonlocal mok_status
+                if "MOK_STATUS=" in line:
+                    for token in line.split():
+                        if token.startswith("MOK_STATUS="):
+                            mok_status = token.split("=", 1)[1].strip()
+                if log_callback:
+                    log_callback(line)
+
+            self._run_cmd(cmd, cwd=target_dir, progress_callback=stream_handler)
+            if log_callback:
+                log_callback("\n[✓] Post-installation Secure Boot signing completed successfully!\n")
+            return True, mok_status
+        except Exception as e:
+            if log_callback:
+                log_callback(f"\n[!] Secure Boot signing failed: {e}\n")
+            return False, f"FAILED: {e}"
+
+    sign_installed_boot_kernel = sign_existing_installed_kernel
+    sign_installed_kernel = sign_existing_installed_kernel
+    sign_kernel_secureboot = sign_existing_installed_kernel
+
+    def ensure_mok_keys(self, output_dir: str = None) -> dict:
+        """Returns co-located MOK certificate paths in output_dir."""
+        target_dir = output_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
+        if not target_dir:
+            target_dir = self.output_base_dir
+        return {
+            "priv": os.path.join(target_dir, "MOK.priv"),
+            "der": os.path.join(target_dir, "MOK.der"),
+            "pem": os.path.join(target_dir, "MOK.pem")
+        }
+
+    def is_mok_enrolled(self, der_path: str = None) -> bool:
+        """Checks if MOK key is enrolled in UEFI NVRAM."""
+        status = self.get_mok_status()
+        return status["key_enrolled"]
+
+    def enroll_mok_key(self, der_path: str = None, password: str = "") -> tuple:
+        """Enrolls MOK key using the atomic root helper."""
+        return self.sign_existing_installed_kernel(kernel_version="auto", mok_password=password)
+
+    enroll_mok_key_gui = enroll_mok_key
 
     def get_installed_kernels(self):
         """Returns a list of installed linux-image packages."""
@@ -1152,310 +1608,6 @@ echo "=========================================================="
             if progress_callback:
                 progress_callback(f"Failed to remove {package_name}: {e}")
             return False
-
-    def get_secure_boot_status(self) -> bool:
-        """
-        Checks if UEFI Secure Boot is active on the system.
-        Returns True if 'SecureBoot enabled' is reported by mokutil, False otherwise.
-        """
-        try:
-            res = subprocess.run(
-                ['mokutil', '--sb-state'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=5
-            )
-            out = (res.stdout + res.stderr).lower()
-            return 'secureboot enabled' in out
-        except Exception:
-            return False
-
-    def ensure_mok_keys(self, key_dir="~/.config/cachy-kernel-updater/mok") -> dict:
-        """
-        Ensures persistent MOK keypair exists. Checks key_dir, /var/lib/shim-signed/mok/,
-        or creates a new RSA-2048 X.509 keypair valid for 10 years (3650 days).
-        Returns a dict: {'priv': path, 'pem': path, 'der': path}.
-        """
-        expanded_dir = os.path.expanduser(key_dir)
-        priv_path = os.path.join(expanded_dir, "MOK.priv")
-        pem_path = os.path.join(expanded_dir, "MOK.pem")
-        der_path = os.path.join(expanded_dir, "MOK.der")
-
-        # 1. Check specified key_dir
-        if os.path.isfile(priv_path) and (os.path.isfile(pem_path) or os.path.isfile(der_path)):
-            if not os.path.isfile(pem_path) and os.path.isfile(der_path):
-                subprocess.run(['openssl', 'x509', '-inform', 'DER', '-in', der_path, '-out', pem_path], check=True)
-            elif not os.path.isfile(der_path) and os.path.isfile(pem_path):
-                subprocess.run(['openssl', 'x509', '-in', pem_path, '-outform', 'DER', '-out', der_path], check=True)
-            return {"priv": priv_path, "pem": pem_path, "der": der_path}
-
-        # 2. Check /var/lib/shim-signed/mok/
-        shim_dir = "/var/lib/shim-signed/mok"
-        s_priv = os.path.join(shim_dir, "MOK.priv")
-        s_pem = os.path.join(shim_dir, "MOK.pem")
-        s_der = os.path.join(shim_dir, "MOK.der")
-        if os.path.isfile(s_priv) and os.path.isfile(s_pem) and os.access(s_priv, os.R_OK):
-            if not os.path.isfile(s_der):
-                try:
-                    subprocess.run(['openssl', 'x509', '-in', s_pem, '-outform', 'DER', '-out', s_der], check=True)
-                except Exception:
-                    pass
-            if os.path.isfile(s_der):
-                return {"priv": s_priv, "pem": s_pem, "der": s_der}
-
-        # 3. Create key_dir and generate new RSA-2048 X.509 keypair
-        os.makedirs(expanded_dir, exist_ok=True)
-        os.chmod(expanded_dir, 0o700)
-
-        cmd_req = [
-            'openssl', 'req', '-new', '-x509', '-newkey', 'rsa:2048', '-nodes',
-            '-days', '3650', '-outform', 'DER',
-            '-keyout', priv_path, '-out', der_path,
-            '-subj', '/CN=CachyOS Debian User Signing Key/'
-        ]
-        subprocess.run(cmd_req, check=True)
-
-        cmd_pem = ['openssl', 'x509', '-inform', 'DER', '-in', der_path, '-out', pem_path]
-        subprocess.run(cmd_pem, check=True)
-
-        os.chmod(priv_path, 0o600)
-        os.chmod(pem_path, 0o644)
-        os.chmod(der_path, 0o644)
-
-        return {"priv": priv_path, "pem": pem_path, "der": der_path}
-
-    def is_mok_enrolled(self, der_path: str) -> bool:
-        """
-        Runs 'mokutil --test-key <der_path>' to check if this MOK certificate
-        is already enrolled in the UEFI database.
-        Returns True if enrolled, False otherwise.
-        """
-        if not os.path.exists(der_path):
-            return False
-        try:
-            res = subprocess.run(
-                ['mokutil', '--test-key', der_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=10
-            )
-            output = (res.stdout + res.stderr).lower()
-            return 'is enrolled' in output and 'not enrolled' not in output
-        except Exception:
-            return False
-
-    def enroll_mok_key_gui(self, der_path: str, password: str) -> tuple:
-        """
-        Imports the MOK certificate into mokutil using pkexec and pipes the one-time enrollment password.
-        Returns (True, message) on success, or (False, error_message).
-        """
-        if not os.path.exists(der_path):
-            return False, f"Certificate file not found: {der_path}"
-
-        if len(password) < 8 or len(password) > 16:
-            return False, "Enrollment password must be between 8 and 16 characters."
-
-        cmd = ['pkexec', 'mokutil', '--import', der_path]
-        try:
-            proc = subprocess.run(
-                cmd,
-                input=f"{password}\n{password}\n",
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=30
-            )
-            if proc.returncode == 0:
-                return True, (
-                    "MOK key import request successfully submitted to UEFI!\n\n"
-                    "Next Reboot Action Required:\n"
-                    "1. When your computer restarts, the blue 'MOKManagement' screen will appear.\n"
-                    "2. Select 'Enroll MOK' -> 'Continue' -> 'Yes'.\n"
-                    "3. Enter the one-time password you just created.\n"
-                    "Your custom CachyOS kernel will then boot securely."
-                )
-            else:
-                err = proc.stderr.strip() or proc.stdout.strip() or f"Exit code {proc.returncode}"
-                return False, f"Failed to register MOK key: {err}"
-        except Exception as e:
-            return False, f"Failed to execute mokutil via pkexec: {e}"
-
-    def sign_built_deb_packages(self, deb_dir: str, log_callback=None) -> bool:
-        """
-        Extracts each linux-image-*.deb in deb_dir using fakeroot, signs /boot/vmlinuz-* with MOK,
-        verifies the signature with sbverify, and repacks the .deb in-place.
-        """
-        import glob
-        if not os.path.isdir(deb_dir):
-            if log_callback:
-                log_callback(f"[!] Directory not found: {deb_dir}")
-            return False
-
-        for tool in ['sbsign', 'sbverify', 'fakeroot', 'dpkg-deb']:
-            if not shutil.which(tool):
-                msg = f"[!] Required signing tool '{tool}' is missing. Please install sbsigntool and fakeroot."
-                if log_callback:
-                    log_callback(msg)
-                return False
-
-        keys = self.ensure_mok_keys()
-        priv = keys["priv"]
-        pem = keys["pem"]
-
-        deb_patterns = [os.path.join(deb_dir, "linux-image-*.deb")]
-        deb_files = [f for pat in deb_patterns for f in glob.glob(pat) if '-dbg' not in f]
-
-        if not deb_files:
-            if log_callback:
-                log_callback(f"[!] No linux-image-*.deb packages found to sign in {deb_dir}")
-            return False
-
-        if log_callback:
-            log_callback(f"\n=======================================================")
-            log_callback(f"[*] Starting UEFI Secure Boot signing of .deb packages...")
-            log_callback(f"    MOK Key:  {priv}")
-            log_callback(f"    MOK Cert: {pem}")
-            log_callback(f"=======================================================\n")
-
-        signed_count = 0
-        tmp_extract_dir = os.path.join(deb_dir, ".tmp_sign_extract")
-
-        for deb in deb_files:
-            fname = os.path.basename(deb)
-            if log_callback:
-                log_callback(f"[*] Processing package: {fname}...")
-
-            if os.path.exists(tmp_extract_dir):
-                shutil.rmtree(tmp_extract_dir, ignore_errors=True)
-            os.makedirs(tmp_extract_dir, exist_ok=True)
-
-            try:
-                # 1. Extract package preserving permissions
-                if log_callback:
-                    log_callback(f"    • Unpacking payload with fakeroot dpkg-deb -R...")
-                res = subprocess.run(
-                    ['fakeroot', 'dpkg-deb', '-R', deb, tmp_extract_dir],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-                )
-                if res.returncode != 0:
-                    raise Exception(f"Unpacking failed: {res.stderr.strip() or res.stdout.strip()}")
-
-                # 2. Locate kernel binary inside boot/
-                boot_dir = os.path.join(tmp_extract_dir, "boot")
-                vmlinuz_candidates = glob.glob(os.path.join(boot_dir, "vmlinuz-*"))
-                if not vmlinuz_candidates:
-                    if log_callback:
-                        log_callback(f"    [!] Notice: No /boot/vmlinuz-* found in {fname}; skipping.")
-                    continue
-
-                for vmlinuz in vmlinuz_candidates:
-                    if vmlinuz.endswith(".signed"):
-                        continue
-                    v_base = os.path.basename(vmlinuz)
-                    if log_callback:
-                        log_callback(f"    • Signing kernel binary {v_base} with sbsign...")
-
-                    signed_file = f"{vmlinuz}.signed"
-                    s_res = subprocess.run(
-                        ['sbsign', '--key', priv, '--cert', pem, '--output', signed_file, vmlinuz],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-                    )
-                    if s_res.returncode != 0:
-                        raise Exception(f"sbsign failed for {v_base}: {s_res.stderr.strip() or s_res.stdout.strip()}")
-
-                    os.replace(signed_file, vmlinuz)
-
-                    # 3. Verify signature with sbverify
-                    v_res = subprocess.run(
-                        ['sbverify', '--list', vmlinuz],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-                    )
-                    if log_callback:
-                        log_callback(f"    • Signature verified: {v_base} is cryptographically signed.")
-
-                # 4. Repack package
-                if log_callback:
-                    log_callback(f"    • Repacking signed package with fakeroot dpkg-deb -b...")
-                repack_res = subprocess.run(
-                    ['fakeroot', 'dpkg-deb', '-b', tmp_extract_dir, deb],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-                )
-                if repack_res.returncode != 0:
-                    raise Exception(f"Repacking failed: {repack_res.stderr.strip() or repack_res.stdout.strip()}")
-
-                signed_count += 1
-                if log_callback:
-                    log_callback(f"    [✓] Successfully signed and repacked {fname}!\n")
-
-            except Exception as e:
-                if log_callback:
-                    log_callback(f"    [!] Error signing package {fname}: {e}")
-                return False
-            finally:
-                if os.path.exists(tmp_extract_dir):
-                    shutil.rmtree(tmp_extract_dir, ignore_errors=True)
-
-        if log_callback:
-            log_callback(f"[✓] Secure Boot MOK signing completed for {signed_count} .deb package(s)!\n")
-        return True
-
-    def sign_installed_boot_kernel(self, kernel_version: str = None, log_callback=None) -> bool:
-        """
-        Signs /boot/vmlinuz-<kernel_version> directly on the host using pkexec sbsign and updates initramfs.
-        """
-        keys = self.ensure_mok_keys()
-        priv = keys["priv"]
-        pem = keys["pem"]
-
-        if not kernel_version:
-            import glob
-            cachy_kernels = glob.glob("/boot/vmlinuz-*cachyos*")
-            if cachy_kernels:
-                cachy_kernels.sort(key=os.path.getmtime, reverse=True)
-                target_vmlinuz = cachy_kernels[0]
-            else:
-                current = self.get_current_kernel_version()
-                target_vmlinuz = f"/boot/vmlinuz-{current}"
-        else:
-            if kernel_version.startswith("/boot/"):
-                target_vmlinuz = kernel_version
-            elif kernel_version.startswith("vmlinuz-"):
-                target_vmlinuz = f"/boot/{kernel_version}"
-            else:
-                target_vmlinuz = f"/boot/vmlinuz-{kernel_version}"
-
-        if not os.path.isfile(target_vmlinuz):
-            if log_callback:
-                log_callback(f"[-] Target kernel binary not found: {target_vmlinuz}")
-            return False
-
-        kver = os.path.basename(target_vmlinuz).replace("vmlinuz-", "")
-
-        if log_callback:
-            log_callback(f"[*] Signing {target_vmlinuz} via pkexec sbsign...")
-
-        cmd_sign = ['pkexec', 'sbsign', '--key', priv, '--cert', pem, '--output', target_vmlinuz, target_vmlinuz]
-        res = subprocess.run(cmd_sign, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if res.returncode != 0:
-            if log_callback:
-                log_callback(f"[!] pkexec sbsign failed: {res.stderr.strip() or res.stdout.strip()}")
-            return False
-
-        if log_callback:
-            log_callback(f"[✓] Kernel {target_vmlinuz} signed. Updating initramfs via pkexec update-initramfs...")
-
-        cmd_initrd = ['pkexec', 'update-initramfs', '-u', '-k', kver]
-        subprocess.run(cmd_initrd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        if log_callback:
-            log_callback(f"[✓] Initramfs updated for {kver}. Kernel is ready for Secure Boot!")
-        return True
-
-    def sign_kernel_secureboot(self, kernel_version=None, progress_callback=None):
-        """Signs the installed kernel in /boot using MOK for UEFI Secure Boot."""
-        return self.sign_installed_boot_kernel(kernel_version=kernel_version, log_callback=progress_callback)
 
     def sign_deb_packages(self, deb_dir=None, gpg_key_id=None, progress_callback=None):
         """Signs the compiled .deb packages using GPG."""
@@ -1504,10 +1656,12 @@ if __name__ == '__main__':
     parser.add_argument('--optimize', action='store_true', help="Optimize kernel compilation for local system (-march=native)")
     parser.add_argument('--build', action='store_true', help="Download and compile the latest CachyOS kernel")
     parser.add_argument('--install', action='store_true', help="Install compiled Debian packages")
+    parser.add_argument('--no-sign', action='store_true', help="Skip Secure Boot MOK signing during installation")
     parser.add_argument('--rollback', nargs='?', const='', help="Purge/rollback an installed kernel package")
-    parser.add_argument('--sign-mok', nargs='?', const='', help="Sign kernel for UEFI Secure Boot (MOK)")
+    parser.add_argument('--sign-mok', nargs='?', const='', help="Sign installed kernel in /boot for UEFI Secure Boot (MOK)")
     parser.add_argument('--sign-deb-mok', metavar='DIR', nargs='?', const='', help="Sign kernel inside built .deb packages with MOK")
     parser.add_argument('--enroll-mok', action='store_true', help="Enroll MOK key into UEFI")
+    parser.add_argument('--reset-mok', action='store_true', help="Cancel previous MOK enrollment, delete old certificates, generate fresh keypair in output folder, and re-sign kernel")
     parser.add_argument('--sign-debs', nargs='?', const='', help="Sign .deb packages with GPG (specify folder or default)")
     parser.add_argument('--gpg-key', help="GPG Key ID for signing .deb packages")
 
@@ -1530,7 +1684,7 @@ if __name__ == '__main__':
         src = km.download_kernel(progress_callback=cli_log)
         km.compile_kernel(src, progress_callback=cli_log, use_container=args.container, optimize_for_system=args.optimize)
     elif args.install:
-        km.install_kernel(progress_callback=cli_log)
+        km.install_kernel(progress_callback=cli_log, sign_after_install=not args.no_sign)
     elif args.rollback is not None:
         if args.rollback:
             km.remove_kernel(args.rollback, progress_callback=cli_log)
@@ -1544,10 +1698,15 @@ if __name__ == '__main__':
         der_path = keys["der"]
         import getpass
         pwd = getpass.getpass("Enter one-time MOK enrollment password (8-16 chars): ")
-        success, msg = km.enroll_mok_key_gui(der_path, pwd)
+        success, msg = km.enroll_mok_key(der_path, pwd)
         print(msg)
+    elif args.reset_mok:
+        import getpass
+        pwd = getpass.getpass("Enter one-time MOK enrollment password (8-16 chars): ")
+        success, msg = km.reset_and_recreate_mok_keys(mok_password=pwd, log_callback=cli_log)
+        print(f"Reset result: {success} ({msg})")
     elif args.sign_mok is not None:
-        km.sign_kernel_secureboot(kernel_version=args.sign_mok or None, progress_callback=cli_log)
+        km.sign_installed_kernel(kernel_version=args.sign_mok or None, log_callback=cli_log)
     elif args.sign_debs is not None:
         km.sign_deb_packages(deb_dir=args.sign_debs or None, gpg_key_id=args.gpg_key, progress_callback=cli_log)
     else:

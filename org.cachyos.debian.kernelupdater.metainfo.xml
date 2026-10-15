@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.cachyos.debian.kernelupdater</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>CachyOS Kernel Updater</name>
+  <summary>Check, compile, install, and manage CachyOS Linux kernels on Debian</summary>
+  <description>
+    <p>
+      Debian CachyOS Kernel Updater is a native GTK4/Libadwaita application designed to easily
+      download, compile, install, optimize, and cryptographically sign CachyOS Linux kernels on Debian systems.
+    </p>
+    <p>Key Features:</p>
+    <ul>
+      <li>Automated detection of latest stable CachyOS kernel releases</li>
+      <li>Native host build and isolated container build modes</li>
+      <li>Pre-configured safe cross-system defaults (localmodconfig, stripped debug symbols)</li>
+      <li>Integrated UEFI Secure Boot signing pipeline with local MOK management</li>
+      <li>Advanced hardware tuning (CPU scheduler, compiler &amp; LTO, microarchitecture targets)</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.cachyos.debian.kernelupdater.desktop</launchable>
+  <url type="homepage">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
+  <url type="bugtracker">https://github.com/Antux912012/debian-cachy-kernel-updater/issues</url>
+  <developer_name>Antonio</developer_name>
+  <provides>
+    <binary>cachy-kernel-updater</binary>
+  </provides>
+  <releases>
+    <release version="1.10.b" date="2026-10-15">
+      <description>
+        <p>Version 1.10.b release:</p>
+        <ul>
+          <li>New vibrant modern CachyOS emblem logo and cohesive teal &amp; crimson branding</li>
+          <li>Guided 1-2-3 step workflow with safe cross-system defaults</li>
+          <li>Enhanced UEFI Secure Boot signing pipeline with co-located MOK certificates</li>
+          <li>Official Debian package (.deb) and standalone Flatpak distribution</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
