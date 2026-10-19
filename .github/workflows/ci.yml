@@ -1,0 +1,40 @@
+name: Debian Cachy Kernel Updater CI
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-lint:
+    name: Lint & Verify Shell Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Check bash syntax (-n)
+        run: |
+          for script in *.sh; do
+            if [ -f "$script" ]; then
+              echo "Checking syntax: $script"
+              bash -n "$script"
+            fi
+          done
+
+      - name: Run shellcheck
+        run: |
+          shellcheck -x sign-kernel.sh
+          shellcheck -x build_deb.sh
+          shellcheck -x build_appimage.sh
+          shellcheck -x build_flatpak.sh
