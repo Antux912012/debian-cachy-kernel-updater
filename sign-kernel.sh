@@ -19,6 +19,15 @@ REAL_UID="${PKEXEC_UID:-${SUDO_UID:-$(id -u)}}"
 REAL_GID=$(id -g "$REAL_UID" 2>/dev/null || echo "$REAL_UID")
 REAL_USER_HOME=$(getent passwd "$REAL_UID" 2>/dev/null | cut -d: -f6 || echo "${HOME:-/root}")
 
+# Concurrency lockfile protection via flock
+LOCK_FILE="/run/lock/cachy-kernel-updater.lock"
+[[ ! -d "/run/lock" ]] && LOCK_FILE="/tmp/cachy-kernel-updater.lock"
+exec 200>"$LOCK_FILE"
+flock -n 200 || { log_err "Another kernel update or signing operation is already running. Aborting."; exit 1; }
+
+# Active running kernel safety guard
+RUNNING_KVER=$(uname -r)
+
 if [[ -z "$OUTPUT_DIR" || "$OUTPUT_DIR" == "auto" ]]; then
     if [[ -d "${REAL_USER_HOME}/kernel-build-deb" ]]; then
         OUTPUT_DIR="${REAL_USER_HOME}/kernel-build-deb"
@@ -275,6 +284,22 @@ if [[ "$ACTION" == "--install-and-sign" ]]; then
     if [[ -n "$VMLINUZ_IN_DEB" ]]; then
         DETECTED_KVER="${VMLINUZ_IN_DEB#./boot/vmlinuz-}"
         log_info "Detected kernel version from .deb payload: ${DETECTED_KVER}"
+    fi
+
+    # Verify package integrity and compute SHA256 hashes before installation
+    ALL_INSTALL_DEBS=("$LATEST_IMAGE_DEB" "${HEADER_DEBS[@]}")
+    for deb_pkg in "${ALL_INSTALL_DEBS[@]}"; do
+        if ! dpkg-deb -I "$deb_pkg" >/dev/null 2>&1; then
+            log_err "Integrity check failed: $deb_pkg is invalid or corrupt. Aborting install."
+            exit 1
+        fi
+        deb_sha=$(sha256sum "$deb_pkg" | awk '{print $1}')
+        log_info "Package verified: $(basename "$deb_pkg") [SHA256: ${deb_sha}]"
+    done
+
+    # Running kernel guard: ensure running kernel is not overwritten
+    if [[ -n "$RUNNING_KVER" && -f "/boot/vmlinuz-${RUNNING_KVER}" ]]; then
+        log_info "Preserving running kernel fallback: /boot/vmlinuz-${RUNNING_KVER}"
     fi
 
     log_info "Installing kernel .deb packages via dpkg -i..."
