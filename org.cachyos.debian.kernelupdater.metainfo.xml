@@ -4,21 +4,26 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>CachyOS Kernel Updater</name>
-  <summary>Check, compile, install, and manage CachyOS Linux kernels on Debian</summary>
+  <summary>Guided 1-2-3 GUI manager for installing and managing optimized CachyOS kernels on Debian</summary>
   <description>
     <p>
-      Debian CachyOS Kernel Updater is a native GTK4/Libadwaita application designed to easily
-      download, compile, install, optimize, and cryptographically sign CachyOS Linux kernels on Debian systems.
+      Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and verification of high-performance CachyOS kernels on Debian-based systems.
     </p>
-    <p>Key Features:</p>
+    <p>
+      Through a guided three-step workflow, users can upgrade to performance-tuned kernels with BORE scheduler optimizations, automatic DKMS rebuilds, fallback kernel retention, and cryptographic MOK Secure Boot signing.
+    </p>
     <ul>
-      <li>Automated detection of latest stable CachyOS kernel releases</li>
-      <li>Native host build and isolated container build modes</li>
-      <li>Pre-configured safe cross-system defaults (localmodconfig, stripped debug symbols)</li>
-      <li>Integrated UEFI Secure Boot signing pipeline with local MOK management</li>
-      <li>Advanced hardware tuning (CPU scheduler, compiler &amp; LTO, microarchitecture targets)</li>
+      <li>Automated Kernel Discovery: Queries upstream CachyOS releases and matches optimal CPU microarchitectures (x86-64-v3 and v4)</li>
+      <li>Guided 1-2-3 Workflow: Step-by-step verification, pre-installation checks, and automated GRUB configuration</li>
+      <li>Secure Boot Integration: Automatic Machine Owner Key (MOK) signing for proprietary modules (NVIDIA, Wi-Fi, VirtualBox)</li>
+      <li>Fallback &amp; Rollback Protection: Retains proven stable kernels to guarantee a bootable system</li>
+      <li>Containerized Build Isolation: Compiles and packages deb images inside isolated container environments</li>
     </ul>
   </description>
+  <branding>
+    <color type="primary" scheme_preference="light">#1a5fb4</color>
+    <color type="primary" scheme_preference="dark">#0d3a78</color>
+  </branding>
   <launchable type="desktop-id">org.cachyos.debian.kernelupdater.desktop</launchable>
   <url type="homepage">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
   <url type="bugtracker">https://github.com/Antux912012/debian-cachy-kernel-updater/issues</url>
