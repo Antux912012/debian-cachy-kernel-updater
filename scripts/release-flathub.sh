@@ -11,6 +11,12 @@ DEV_ENV="/home/antonio/Projects/dev-env.sh"
 APP_ID="io.github.Antux912012.debian-cachy-os-kernel-updater"
 GITHUB_USER="Antux912012"
 
+# Resolve GitHub Token from environment or ~/.config/cachy-kernel-updater/github_token
+TOKEN_FILE="${HOME}/.config/cachy-kernel-updater/github_token"
+if [ -z "${GITHUB_TOKEN:-}" ] && [ -f "$TOKEN_FILE" ]; then
+    GITHUB_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+fi
+
 cd "$PROJECT_DIR"
 
 usage() {
@@ -22,8 +28,9 @@ Arguments:
   "release notes"   Optional changelog summary (default: "Release version <version>")
 
 Options:
-  --first-submission  Target Flathub 'new-pr' branch on your fork (${GITHUB_USER}/flathub)
-  --update-flathub    Target existing Flathub app repo (flathub/${APP_ID})
+  --first-submission  Fork flathub/flathub (all branches), push branch '${APP_ID}' from 'new-pr', and open PR
+  --update-flathub    Target existing Flathub app repo (flathub/${APP_ID}) and open PR
+  --skip-build        Skip container rebuild if packages were already built
   --no-push           Prepare versions, validate, build packages, and tag locally without git push
 
 Examples:
@@ -48,11 +55,13 @@ fi
 
 MODE="none"
 NO_PUSH=false
+SKIP_BUILD=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --first-submission) MODE="first" ;;
         --update-flathub)   MODE="update" ;;
+        --skip-build)       SKIP_BUILD=true ;;
         --no-push)          NO_PUSH=true ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -61,6 +70,12 @@ done
 
 DATE_TODAY="$(date +%Y-%m-%d)"
 TAG="v${VERSION}"
+
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    AUTH_PREFIX="https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com"
+else
+    AUTH_PREFIX="https://github.com"
+fi
 
 echo "=================================================================="
 echo " Preparing Release ${TAG} (${DATE_TODAY}) for ${APP_ID}"
@@ -95,19 +110,23 @@ else:
 PYEOF
 
 # 3. Validate & Rebuild (.deb + .flatpak) inside Podman dev-debian container
-echo "[3/6] Running desktop/AppStream validation & package builds inside Podman (dev-debian)..."
-"$DEV_ENV" debian run bash -c "
-    set -e
-    cd /workspace/debian-cachy-kernel-updater
-    desktop-file-validate ${APP_ID}.desktop
-    appstreamcli validate --pedantic --explain ${APP_ID}.metainfo.xml
-    ./build_deb.sh
-    ./build_flatpak.sh
-"
+if [ "$SKIP_BUILD" = false ]; then
+    echo "[3/6] Running desktop/AppStream validation & package builds inside Podman (dev-debian)..."
+    "$DEV_ENV" debian run bash -c "
+        set -e
+        cd /workspace/debian-cachy-kernel-updater
+        desktop-file-validate ${APP_ID}.desktop
+        appstreamcli validate --pedantic --explain ${APP_ID}.metainfo.xml
+        ./build_deb.sh
+        ./build_flatpak.sh
+    "
+else
+    echo "[3/6] --skip-build specified, skipping container build."
+fi
 
 # 4. Commit and Tag Upstream Release
 echo "[4/6] Committing release changes and tagging ${TAG}..."
-git add main.py kernel_manager.py "${APP_ID}.metainfo.xml" "${APP_ID}.yml" "${APP_ID}.desktop" build_flatpak.sh
+git add main.py kernel_manager.py "${APP_ID}.metainfo.xml" "${APP_ID}.yml" "${APP_ID}.desktop" build_flatpak.sh scripts/release-flathub.sh FLATHUB_SUBMISSION_PLAN.md
 if ! git diff --cached --quiet; then
     git commit -m "Release ${TAG}: ${NOTES}"
 fi
@@ -120,7 +139,6 @@ echo "[5/6] Locking tag (${TAG}) and commit (${COMMIT_SHA}) in flathub_submissio
 sed -i -E "s|^([[:space:]]*tag:[[:space:]]*).*|\1${TAG}|" "flathub_submission/${APP_ID}.yml"
 sed -i -E "s|^([[:space:]]*commit:[[:space:]]*).*|\1${COMMIT_SHA}|" "flathub_submission/${APP_ID}.yml"
 
-# Keep flathub_submission manifest committed in main branch as well
 git add "flathub_submission/${APP_ID}.yml" "flathub_submission/flathub.json"
 if ! git diff --cached --quiet; then
     git commit --amend --no-edit
@@ -131,55 +149,96 @@ fi
 
 if [ "$NO_PUSH" = true ]; then
     echo "[6/6] --no-push specified. Skipping git push and Flathub branch push."
-    echo "Done! Local packages are in deb_dist/ and Flathub manifest is in flathub_submission/."
     exit 0
 fi
 
 # 6. Push Upstream & Optionally Push Flathub PR Branch
-echo "[6/6] Pushing upstream main and tag ${TAG} to origin..."
-git push origin main
-git push -f origin "$TAG"
+echo "[6/6] Pushing upstream main and tag ${TAG} to GitHub..."
+git push "${AUTH_PREFIX}/${GITHUB_USER}/debian-cachy-kernel-updater.git" main
+git push -f "${AUTH_PREFIX}/${GITHUB_USER}/debian-cachy-kernel-updater.git" "$TAG"
 
 if [ "$MODE" = "first" ]; then
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        echo "[*] Ensuring fork ${GITHUB_USER}/flathub exists on GitHub (with all branches)..."
+        curl -sS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/flathub/flathub/forks \
+            -d '{"default_branch_only":false}' >/dev/null || true
+        sleep 3
+    fi
+
     WORK_DIR="$(mktemp -d /tmp/flathub-first.XXXXXX)"
     trap 'rm -rf "$WORK_DIR"' EXIT
-    echo "[*] Cloning https://github.com/${GITHUB_USER}/flathub.git (branch: new-pr)..."
-    git clone --branch=new-pr --single-branch "https://github.com/${GITHUB_USER}/flathub.git" "$WORK_DIR"
+    echo "[*] Cloning Flathub 'new-pr' branch..."
+    git clone --branch=new-pr --single-branch "https://github.com/flathub/flathub.git" "$WORK_DIR"
     cd "$WORK_DIR"
+    git config user.name "$GITHUB_USER"
+    git config user.email "${GITHUB_USER}@users.noreply.github.com"
     git checkout -b "${APP_ID}" new-pr
     cp "${PROJECT_DIR}/flathub_submission/${APP_ID}.yml" .
     cp "${PROJECT_DIR}/flathub_submission/flathub.json" .
     git add "${APP_ID}.yml" flathub.json
     git commit -m "Add ${APP_ID}"
-    git push -f origin "${APP_ID}"
-    echo ""
-    echo "=================================================================="
-    echo " SUCCESS! Open your Initial Flathub Submission PR at:"
-    echo " https://github.com/flathub/flathub/compare/new-pr...${GITHUB_USER}:flathub:${APP_ID}?expand=1"
-    echo "=================================================================="
+    git push -f "${AUTH_PREFIX}/${GITHUB_USER}/flathub.git" "${APP_ID}"
+
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        echo "[*] Creating Pull Request on flathub/flathub (base: new-pr)..."
+        PR_BODY=$(cat <<'EOF'
+### Submission Summary
+**Debian CachyOS Kernel Updater** (`io.github.Antux912012.debian-cachy-os-kernel-updater`) is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
+
+### Sandbox Permissions Justification
+- `--talk-name=org.freedesktop.Flatpak` & `--filesystem=host`: Required because this utility compiles Linux kernels (via host Podman/toolchain), inspects `/boot`, `/var/lib/dpkg`, and `/sys/firmware/efi/efivars`, signs kernel modules with MOK keys (`mokutil` / `sbsigntool`), and installs `.deb` kernel packages on the host via `pkexec dpkg -i`.
+- `only-arches: ["x86_64"]`: CachyOS kernel optimizations (`x86-64-v3` and `x86-64-v4`) specifically target `x86_64` systems.
+EOF
+)
+        PR_JSON=$(python3 -c 'import json, sys; print(json.dumps({"title": sys.argv[1], "head": sys.argv[2], "base": "new-pr", "body": sys.argv[3]}))' \
+            "Add ${APP_ID}" "${GITHUB_USER}:${APP_ID}" "$PR_BODY")
+        RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/flathub/flathub/pulls \
+            -d "$PR_JSON")
+        PR_URL=$(python3 -c 'import json, sys; d=json.loads(sys.stdin.read()); print(d.get("html_url", ""))' <<< "$RESPONSE")
+        if [ -n "$PR_URL" ]; then
+            echo "=================================================================="
+            echo " SUCCESS! Flathub Pull Request Created: ${PR_URL}"
+            echo "=================================================================="
+        else
+            echo "Branch pushed! Compare/PR response: $RESPONSE"
+            echo "Manual PR URL: https://github.com/flathub/flathub/compare/new-pr...${GITHUB_USER}:flathub:${APP_ID}?expand=1"
+        fi
+    fi
+
 elif [ "$MODE" = "update" ]; then
     WORK_DIR="$(mktemp -d /tmp/flathub-update.XXXXXX)"
     trap 'rm -rf "$WORK_DIR"' EXIT
     BRANCH_NAME="release-${TAG}"
     echo "[*] Cloning https://github.com/flathub/${APP_ID}.git..."
-    git clone "https://github.com/flathub/${APP_ID}.git" "$WORK_DIR"
+    git clone "${AUTH_PREFIX}/flathub/${APP_ID}.git" "$WORK_DIR"
     cd "$WORK_DIR"
+    git config user.name "$GITHUB_USER"
+    git config user.email "${GITHUB_USER}@users.noreply.github.com"
     git checkout -b "$BRANCH_NAME"
     cp "${PROJECT_DIR}/flathub_submission/${APP_ID}.yml" .
     cp "${PROJECT_DIR}/flathub_submission/flathub.json" .
     git add "${APP_ID}.yml" flathub.json
     git commit -m "Update ${APP_ID} to ${TAG}"
-    git push -f origin "$BRANCH_NAME"
-    echo ""
-    echo "=================================================================="
-    echo " SUCCESS! Open your Flathub Release Update PR at:"
-    echo " https://github.com/flathub/${APP_ID}/compare/master...${BRANCH_NAME}?expand=1"
-    echo "=================================================================="
-else
-    echo ""
-    echo "=================================================================="
-    echo " Upstream tag ${TAG} pushed (${COMMIT_SHA})."
-    echo " Tip: Pass --first-submission or --update-flathub to also push"
-    echo "      directly to your Flathub repository."
-    echo "=================================================================="
+    git push -f "${AUTH_PREFIX}/flathub/${APP_ID}.git" "$BRANCH_NAME"
+
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        echo "[*] Creating Release Update Pull Request on flathub/${APP_ID}..."
+        PR_JSON=$(python3 -c 'import json, sys; print(json.dumps({"title": sys.argv[1], "head": sys.argv[2], "base": "master", "body": sys.argv[3]}))' \
+            "Update ${APP_ID} to ${TAG}" "$BRANCH_NAME" "Release ${TAG}: ${NOTES}")
+        RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/flathub/${APP_ID}/pulls" \
+            -d "$PR_JSON")
+        PR_URL=$(python3 -c 'import json, sys; d=json.loads(sys.stdin.read()); print(d.get("html_url", ""))' <<< "$RESPONSE")
+        echo "=================================================================="
+        echo " SUCCESS! Flathub Update PR: ${PR_URL:-https://github.com/flathub/${APP_ID}/compare/master...${BRANCH_NAME}?expand=1}"
+        echo "=================================================================="
+    fi
 fi
