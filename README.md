@@ -7,10 +7,11 @@ An independent, community-driven **GTK4 / Libadwaita** application designed for 
 > **Kernel Updater for CachyOS on Debian** (`io.github.Antux912012.debian-cachy-os-kernel-updater`) is an independent, unofficial third-party tool developed by Antonio (`Antux912012`) and is **not** affiliated with, endorsed by, or maintained by the official **CachyOS Project** or the **Debian Project**. All product names, logos, and brands are property of their respective owners.
 
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20LTS%20%2B-E95420?logo=ubuntu&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
 ![Flatpak](https://img.shields.io/badge/Flatpak-io.github.Antux912012.debian--cachy--os--kernel--updater-4A90D9?logo=flathub&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.1.5-00A896.svg)
+![Version](https://img.shields.io/badge/version-1.1.6-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)
 
 <p align="center">
@@ -50,9 +51,9 @@ An independent, community-driven **GTK4 / Libadwaita** application designed for 
 1. **Official CachyOS Version Checking:** Queries the official [CachyOS GitHub repository](https://github.com/CachyOS/linux/releases) and [PKGBUILD](https://github.com/CachyOS/linux-cachyos) to detect the latest stable CachyOS kernel release (e.g. 7.2.10).
 2. **System Comparison:** Automatically verifies whether your currently running kernel matches the latest CachyOS release.
 3. **Automated Source & Config Download:** Downloads the pre-patched official CachyOS kernel tree and the official CachyOS `.config`.
-4. **Containerized Compilation (Podman / Docker):**
-   * Optionally compile inside an isolated `debian:bookworm-slim` container environment using **Podman** or **Docker**.
-   * Provides 100% reproducible builds and generic compatibility across Debian Bookworm, Trixie, Sid, and derivatives without polluting your host system.
+4. **Containerized Compilation & Host OS Auto-Detection (Debian & Ubuntu):**
+   * Automatically inspects `/run/host/etc/os-release` (inside Flatpak) and `/etc/os-release` to detect whether the host is **Debian** (Bookworm, Trixie, Sid, LMDE, MX) or **Ubuntu** (24.04 LTS+, Pop!_OS, Linux Mint, KDE neon, Zorin).
+   * Dynamically selects `debian:bookworm-slim` (`cachyos-kernel-builder:debian`) on Debian hosts or `ubuntu:24.04` (`cachyos-kernel-builder:ubuntu`) on Ubuntu hosts when compiling inside an isolated **Podman** or **Docker** container, tagging built kernels (`-cachyos-debian` vs `-cachyos-ubuntu`) and output directories accordingly.
 5. **⚡ Compile for My System (Experimental):**
    * **Hardware Auto-Detection:** Automatically scans your machine's CPU vendor (Intel/AMD), CPU model, thread count, form-factor (laptop battery vs desktop), root filesystem, and active hardware modules.
    * **Native CPU Optimization (`-march=native`):** Directs the compiler to utilize your exact CPU microarchitecture instructions (AVX2, AVX-512, BMI2, modern cache line sizes) for maximum responsiveness.
@@ -121,13 +122,13 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.1.5 Release Page](https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/tag/v1.1.5):
+Download the pre-compiled `.deb` package from the [v1.1.6 Release Page](https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/tag/v1.1.6):
 
-* 📦 **[cachy-kernel-updater_1.1.5_all.deb](https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/download/v1.1.5/cachy-kernel-updater_1.1.5_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.6_all.deb](https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/download/v1.1.6/cachy-kernel-updater_1.1.6_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.1.5_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.1.6_all.deb
 ```
 
 ---
@@ -240,7 +241,7 @@ sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-Cachy
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.5_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.6_all.deb`.
 
 ### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
@@ -298,6 +299,10 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 ---
 
 ## 📜 Changelog
+
+### v1.1.6
+- **Automatic Debian & Ubuntu Host OS Detection (`/etc/os-release` & `/run/host/etc/os-release`)**: Added [`KernelManager.detect_host_distro()`](kernel_manager.py) to automatically detect whether the host system (or build environment) is running Debian or Ubuntu/derivatives, dynamically selecting `debian:bookworm-slim` (`cachyos-kernel-builder:debian`) or `ubuntu:24.04` (`cachyos-kernel-builder:ubuntu`), matching `-cachyos-debian` / `-cachyos-ubuntu` localversion tags, and displaying the active Host OS in the top status banner.
+- **Flathub Policy & Linter Compliance**: Aligned application display name (`Kernel Updater for CachyOS on Debian`), trademark/non-affiliation notices, and Flatpak sandbox permission disclosures in `README.md`, `.metainfo.xml`, and `.desktop`; bumped GNOME Flatpak runtime to `51`; and added automated [`scripts/release-flathub.sh`](scripts/release-flathub.sh) release pipeline.
 
 ### v1.1.5
 - **Standardized Flatpak & Freedesktop Application ID (`io.github.Antux912012.debian-cachy-os-kernel-updater`)**: Migrated application ID, AppStream catalog metadata, desktop launcher, and icon assets to the canonical `io.github.Antux912012.debian-cachy-os-kernel-updater` reverse-DNS namespace.

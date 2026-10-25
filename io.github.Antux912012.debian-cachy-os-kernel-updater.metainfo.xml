@@ -49,6 +49,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.1.6" date="2026-10-25">
+      <description>
+        <p>Version 1.1.6 release:</p>
+        <ul>
+          <li>Added automatic Debian vs. Ubuntu host OS detection (/run/host/etc/os-release and /etc/os-release) to dynamically select debian:bookworm-slim or ubuntu:24.04 container builders and matching kernel localversions</li>
+          <li>Aligned application display name, README, and AppStream metadata with Flathub trademark and non-affiliation policies</li>
+          <li>Updated GNOME Flatpak runtime to version 51 and added automated release-flathub.sh publisher script</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.5" date="2026-10-25">
       <description>
         <p>Version 1.1.5 release:</p>

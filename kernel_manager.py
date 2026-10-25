@@ -7,7 +7,7 @@ import re
 import glob
 import stat
 
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.6"
 
 class KernelManager:
     APP_VERSION = APP_VERSION
