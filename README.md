@@ -1,15 +1,20 @@
-# Debian CachyOS Kernel Installer & Updater
+# Kernel Updater for CachyOS on Debian (Unofficial)
 
-A modern **GTK4 / Libadwaita** application designed for Debian systems to check, download, compile, install, and rollback performance-optimized **CachyOS Linux Kernels**.
+An independent, community-driven **GTK4 / Libadwaita** application designed for Debian systems to check, download, compile, install, and rollback performance-optimized **CachyOS Linux Kernels**.
+
+> [!NOTE]
+> **Trademark & Non-Affiliation Notice (Flathub Policy Compliance):**
+> **Kernel Updater for CachyOS on Debian** (`io.github.Antux912012.debian-cachy-os-kernel-updater`) is an independent, unofficial third-party tool developed by Antonio (`Antux912012`) and is **not** affiliated with, endorsed by, or maintained by the official **CachyOS Project** or the **Debian Project**. All product names, logos, and brands are property of their respective owners.
 
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
+![Flatpak](https://img.shields.io/badge/Flatpak-io.github.Antux912012.debian--cachy--os--kernel--updater-4A90D9?logo=flathub&logoColor=white)
 ![Version](https://img.shields.io/badge/version-1.1.5-00A896.svg)
-![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
+![License](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)
 
 <p align="center">
-  <img src="assets/logo_256.png" alt="Debian CachyOS Kernel Updater Logo" width="180">
+  <img src="assets/logo_256.png" alt="Kernel Updater for CachyOS on Debian Logo" width="180">
 </p>
 
 ## 📸 Application Screenshots
@@ -127,16 +132,26 @@ sudo apt install -y ./cachy-kernel-updater_1.1.5_all.deb
 
 ---
 
-### Method 3: Standalone Flatpak Bundle
+### Method 3: Flathub & Flatpak Bundle
 
-Download and install the standalone `.flatpak` bundle (`io.github.Antux912012.debian-cachy-os-kernel-updater`):
+Install the Flatpak (`io.github.Antux912012.debian-cachy-os-kernel-updater`):
 ```bash
+# From Flathub (once published)
+flatpak install flathub io.github.Antux912012.debian-cachy-os-kernel-updater
+
+# Or from the standalone release bundle (.flatpak)
 flatpak install --user io.github.Antux912012.debian-cachy-os-kernel-updater.flatpak
 ```
-Or run directly:
+Run the application:
 ```bash
 flatpak run io.github.Antux912012.debian-cachy-os-kernel-updater
 ```
+
+#### Flatpak Sandbox & Host Permissions Disclosure
+In accordance with [Flathub Requirements](https://docs.flathub.org/docs/for-app-authors/requirements), this utility declares the following sandbox permissions in its manifest (`io.github.Antux912012.debian-cachy-os-kernel-updater.yml`):
+- **`--filesystem=host` & `--talk-name=org.freedesktop.Flatpak` (`flatpak-spawn --host`)**: Required because compiling Linux kernels (via host toolchain or Podman/Docker), inspecting `/boot`, `/var/lib/dpkg`, and `/sys/firmware/efi/efivars`, signing kernel modules with MOK keys (`sbsign` / `mokutil`), and installing `.deb` kernel images (`pkexec dpkg -i`) operate directly on the host operating system.
+- **`--talk-name=org.freedesktop.Notifications` & `--system-talk-name=org.freedesktop.PolicyKit1`**: Used for build completion notifications and Polkit privilege elevation prompts.
+- **Architecture (`x86_64`)**: Targets `x86_64` systems matching CachyOS `x86-64-v3` / `x86-64-v4` and native microarchitecture tuning.
 
 ---
 

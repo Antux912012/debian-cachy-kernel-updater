@@ -3,11 +3,11 @@
   <id>io.github.Antux912012.debian-cachy-os-kernel-updater</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>CachyOS Kernel Updater</name>
+  <name>Kernel Updater for CachyOS on Debian</name>
   <summary>Manage CachyOS kernels on Debian</summary>
   <description>
     <p>
-      Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and verification of high-performance CachyOS kernels on Debian-based systems.
+      Kernel Updater for CachyOS on Debian is an independent, unofficial GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and verification of CachyOS kernels on Debian-based systems. (Not affiliated with or endorsed by the CachyOS or Debian projects.)
     </p>
     <p>
       Through a guided three-step workflow, users can upgrade to performance-tuned kernels with BORE scheduler optimizations, automatic DKMS rebuilds, fallback kernel retention, and cryptographic MOK Secure Boot signing.

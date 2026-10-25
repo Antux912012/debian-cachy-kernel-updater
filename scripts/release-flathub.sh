@@ -126,7 +126,7 @@ fi
 
 # 4. Commit and Tag Upstream Release
 echo "[4/6] Committing release changes and tagging ${TAG}..."
-git add main.py kernel_manager.py "${APP_ID}.metainfo.xml" "${APP_ID}.yml" "${APP_ID}.desktop" build_flatpak.sh scripts/release-flathub.sh FLATHUB_SUBMISSION_PLAN.md
+git add README.md main.py kernel_manager.py "${APP_ID}.metainfo.xml" "${APP_ID}.yml" "${APP_ID}.desktop" build_flatpak.sh scripts/release-flathub.sh FLATHUB_SUBMISSION_PLAN.md
 if ! git diff --cached --quiet; then
     git commit -m "Release ${TAG}: ${NOTES}"
 fi
@@ -185,14 +185,52 @@ if [ "$MODE" = "first" ]; then
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         echo "[*] Creating Pull Request on flathub/flathub (base: new-pr)..."
         PR_BODY=$(cat <<'EOF'
-### Submission Summary
-**Debian CachyOS Kernel Updater** (`io.github.Antux912012.debian-cachy-os-kernel-updater`) is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
+### Please confirm your submission meets all the criteria
 
-### Sandbox Permissions Justification
+- [X] Please describe the application briefly. Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
+- [X] Please attach a video showcasing the application on Linux using the Flatpak. https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png
+- [X] The Flatpak ID follows all the rules listed in the [Application ID requirements][appid].
+- [X] I have read and followed all the [Submission requirements][reqs] and the [Submission guide][reqs2] and I agree to them.
+  - [X] The application has a meaningful development history, evidence of real-world use, and a clear commitment to ongoing maintenance, as required by the [development history requirements][history].
+  - [X] I have disclosed any AI-generated material included in the application or its Flathub packaging, as required by the [Generative AI policy][ai]. **Affected parts and approximate extent:** None
+  - [X] I have not used AI tools or agents to generate or automate this submission pull request or its review interactions.
+- [X] I am an author/developer/upstream contributor to the project. **Link:** https://github.com/Antux912012/debian-cachy-kernel-updater
+
+### Sandbox Permissions Note
 - `--talk-name=org.freedesktop.Flatpak` & `--filesystem=host`: Required because this utility compiles Linux kernels (via host Podman/toolchain), inspects `/boot`, `/var/lib/dpkg`, and `/sys/firmware/efi/efivars`, signs kernel modules with MOK keys (`mokutil` / `sbsigntool`), and installs `.deb` kernel packages on the host via `pkexec dpkg -i`.
 - `only-arches: ["x86_64"]`: CachyOS kernel optimizations (`x86-64-v3` and `x86-64-v4`) specifically target `x86_64` systems.
+
+<!-- ⚠️⚠️  Please DO NOT modify anything below this line ⚠️⚠️  -->
+
+[appid]: https://docs.flathub.org/docs/for-app-authors/requirements#application-id
+[reqs]: https://docs.flathub.org/docs/for-app-authors/requirements
+[reqs2]: https://docs.flathub.org/docs/for-app-authors/submission
+[history]: https://docs.flathub.org/docs/for-app-authors/requirements#insufficient-development-history
+[ai]: https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy
 EOF
 )
+        # Validate PR_BODY against Flathub's flathub-submission-checker rules before opening PR
+        python3 - "$PR_BODY" << 'PYCHECK'
+import re, sys
+
+body = sys.argv[1]
+checklist = [(m.lower() == "x", t.strip()) for m, t in re.findall(r"^[ \t]*[-+*][ \t]+\[([ xX])\][ \t]*(.+?)\s*$", body, re.M)]
+required = [
+    "Please describe the application briefly.",
+    "Please attach a video showcasing the application on Linux using the Flatpak.",
+    "The Flatpak ID follows all the rules listed in the",
+    "I have read and followed all the",
+    "The application has a meaningful development history, evidence of real-world use, and a clear commitment to ongoing maintenance, as required by the",
+    "I have disclosed any AI-generated material included in the application or its Flathub packaging, as required by the",
+    "I have not used AI tools or agents to generate or automate this submission pull request or its review interactions.",
+]
+norm = lambda s: " ".join(s.replace("*", "").replace("_", "").replace("`", "").split()).casefold()
+texts = [norm(t) for _, t in checklist]
+missing = [r for r in required if not any(norm(r) in t for t in texts)]
+if missing or not all(c for c, _ in checklist):
+    sys.exit(f"ERROR: Flathub checklist validation failed! Missing={missing}")
+print("  -> Flathub PR checklist pre-validation passed (8/8 items checked).")
+PYCHECK
         PR_JSON=$(python3 -c 'import json, sys; print(json.dumps({"title": sys.argv[1], "head": sys.argv[2], "base": "new-pr", "body": sys.argv[3]}))' \
             "Add ${APP_ID}" "${GITHUB_USER}:${APP_ID}" "$PR_BODY")
         RESPONSE=$(curl -sS -X POST \

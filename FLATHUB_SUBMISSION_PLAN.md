@@ -111,7 +111,28 @@ Once Gemini 3.8 Flash completes the repository preparation and updates tag `v1.1
    ```
 
 3. **Open Pull Request against `flathub/flathub` (`new-pr` base branch):**
-   Include this concise Sandbox Exception Justification in the PR body:
-   > **Sandbox Permissions Note:**
-   > - `--talk-name=org.freedesktop.Flatpak` & `--filesystem=host`: Required because this utility compiles Linux kernels (via host Podman/toolchain), inspects `/boot` and `/sys/firmware/efi/efivars`, signs kernel modules with MOK keys (`mokutil`/`sbsigntool`), and installs `.deb` kernel packages on the host via `pkexec dpkg -i`.
-   > - `only-arches: ["x86_64"]`: CachyOS kernel optimizations (`x86-64-v3`/`v4`) specifically target x86_64 systems.
+   **CRITICAL:** `flathub-submission-checker` automatically closes any PR that omits the official `.github/pull_request_template.md` checklist (`[X]`) or lacks a showcase URL on the video line. Always use the full checklist below (now baked into `scripts/release-flathub.sh`):
+   ```markdown
+   ### Please confirm your submission meets all the criteria
+
+   - [X] Please describe the application briefly. Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
+   - [X] Please attach a video showcasing the application on Linux using the Flatpak. https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png
+   - [X] The Flatpak ID follows all the rules listed in the [Application ID requirements][appid].
+   - [X] I have read and followed all the [Submission requirements][reqs] and the [Submission guide][reqs2] and I agree to them.
+     - [X] The application has a meaningful development history, evidence of real-world use, and a clear commitment to ongoing maintenance, as required by the [development history requirements][history].
+     - [X] I have disclosed any AI-generated material included in the application or its Flathub packaging, as required by the [Generative AI policy][ai]. **Affected parts and approximate extent:** None
+     - [X] I have not used AI tools or agents to generate or automate this submission pull request or its review interactions.
+   - [X] I am an author/developer/upstream contributor to the project. **Link:** https://github.com/Antux912012/debian-cachy-kernel-updater
+
+   ### Sandbox Permissions Note
+   - `--talk-name=org.freedesktop.Flatpak` & `--filesystem=host`: Required because this utility compiles Linux kernels (via host Podman/toolchain), inspects `/boot`, `/var/lib/dpkg`, and `/sys/firmware/efi/efivars`, signs kernel modules with MOK keys (`mokutil` / `sbsigntool`), and installs `.deb` kernel packages on the host via `pkexec dpkg -i`.
+   - `only-arches: ["x86_64"]`: CachyOS kernel optimizations (`x86-64-v3` and `x86-64-v4`) specifically target `x86_64` systems.
+
+   <!-- ⚠️⚠️  Please DO NOT modify anything below this line ⚠️⚠️  -->
+
+   [appid]: https://docs.flathub.org/docs/for-app-authors/requirements#application-id
+   [reqs]: https://docs.flathub.org/docs/for-app-authors/requirements
+   [reqs2]: https://docs.flathub.org/docs/for-app-authors/submission
+   [history]: https://docs.flathub.org/docs/for-app-authors/requirements#insufficient-development-history
+   [ai]: https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy
+   ```
