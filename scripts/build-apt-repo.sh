@@ -4,7 +4,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
-VERSION="${VERSION:-1.1.2}"
+VERSION="${VERSION:-1.1.3}"
 KEY_ID="620D1EA9AC45150575E70825BEE28F80428556CF"
 REPO_URL="https://antux912012.github.io/debian-cachy-kernel-updater"
 REPO_DIR="/tmp/cachyos-apt-repo-staging"

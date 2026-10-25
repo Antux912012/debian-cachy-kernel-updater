@@ -4,8 +4,10 @@ import os
 import shutil
 import urllib.request
 import re
+import glob
+import stat
 
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 
 class KernelManager:
     APP_VERSION = APP_VERSION
@@ -13,14 +15,22 @@ class KernelManager:
         self.releases_api = "https://api.github.com/repos/CachyOS/linux/releases?per_page=30"
         self.pkgbuild_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/PKGBUILD"
         self.cachy_config_raw = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/master/linux-cachyos/config"
-        cache_base = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+        self._flatpak_spawn_available = None
+
+        real_home = os.path.expanduser("~")
+        if self.is_flatpak():
+            cache_base = os.path.join(real_home, ".cache")
+            config_base = os.path.join(real_home, ".config")
+        else:
+            cache_base = os.environ.get("XDG_CACHE_HOME", os.path.join(real_home, ".cache"))
+            config_base = os.environ.get("XDG_CONFIG_HOME", os.path.join(real_home, ".config"))
+
         self.download_dir = os.path.join(cache_base, "cachy-kernel-build")
-        
-        config_base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
         self.config_dir = os.path.join(config_base, "cachy-kernel-updater")
         self.saved_config_path = os.path.join(self.config_dir, "kernel.config")
         self.saved_native_config_path = os.path.join(self.config_dir, "kernel-native.config")
         os.makedirs(self.config_dir, exist_ok=True)
+        self._stage_host_helper_files()
 
         self.REQUIRED_BUILD_DEPS = [
             'build-essential',
@@ -73,6 +83,88 @@ class KernelManager:
         self.last_output_dir = None
         self.container_image_tag = "cachyos-kernel-builder:debian"
 
+    def is_flatpak(self) -> bool:
+        """Returns True when running inside a Flatpak sandbox."""
+        return os.path.exists("/.flatpak-info") or bool(os.environ.get("FLATPAK_ID"))
+
+    def _can_flatpak_spawn_host(self) -> bool:
+        """Returns True if inside Flatpak and flatpak-spawn --host is operational."""
+        if not self.is_flatpak():
+            return False
+        if self._flatpak_spawn_available is not None:
+            return self._flatpak_spawn_available
+        if not shutil.which("flatpak-spawn"):
+            self._flatpak_spawn_available = False
+            return False
+        try:
+            res = subprocess.run(
+                ["flatpak-spawn", "--host", "true"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3
+            )
+            self._flatpak_spawn_available = (res.returncode == 0)
+        except Exception:
+            self._flatpak_spawn_available = False
+        return self._flatpak_spawn_available
+
+    def _host_cmd(self, cmd: list, cwd: str = None, env: dict = None) -> list:
+        """Wraps a command list with 'flatpak-spawn --host' when running inside Flatpak."""
+        if not self._can_flatpak_spawn_host():
+            return list(cmd)
+        spawn_cmd = ["flatpak-spawn", "--host"]
+        if cwd:
+            spawn_cmd.append(f"--directory={cwd}")
+        if env:
+            for k, v in env.items():
+                spawn_cmd.append(f"--env={k}={v}")
+        return spawn_cmd + list(cmd)
+
+    def _run_host_subproc(self, cmd: list, **kwargs):
+        """Runs a short subprocess on the host (via flatpak-spawn --host if in Flatpak)."""
+        cwd = kwargs.get("cwd")
+        if self._can_flatpak_spawn_host():
+            actual_cmd = self._host_cmd(cmd, cwd=cwd)
+            kwargs_copy = dict(kwargs)
+            kwargs_copy.pop("cwd", None)
+            return subprocess.run(actual_cmd, **kwargs_copy)
+        return subprocess.run(cmd, **kwargs)
+
+    def _which_host(self, binary: str):
+        """Checks if an executable exists on the host (or locally)."""
+        if self._can_flatpak_spawn_host():
+            try:
+                res = subprocess.run(
+                    ["flatpak-spawn", "--host", "sh", "-c", f"command -v {binary}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    timeout=5
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+            except Exception:
+                pass
+        return shutil.which(binary)
+
+    def _stage_host_helper_files(self):
+        """
+        Copies sign-kernel.sh and Containerfile from the application bundle (/app/share/...)
+        into ~/.config/cachy-kernel-updater/ so host processes (pkexec, podman, bash)
+        invoked via flatpak-spawn --host can access them on the host filesystem.
+        """
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+            for fname, mode in (("sign-kernel.sh", 0o755), ("Containerfile", 0o644)):
+                src = os.path.join(base_dir, fname)
+                dst = os.path.join(self.config_dir, fname)
+                if os.path.isfile(src) and os.path.abspath(src) != os.path.abspath(dst):
+                    shutil.copy2(src, dst)
+                    os.chmod(dst, mode)
+        except Exception:
+            pass
+
     def get_current_kernel_version(self):
         """Returns the currently running kernel version."""
         try:
@@ -86,7 +178,6 @@ class KernelManager:
         root filesystem, manufacturer, and loaded kernel modules.
         Returns a dict of detected hardware details.
         """
-        import glob
         info = {
             'cpu_model': 'Generic x86-64',
             'vendor': 'Unknown',
@@ -132,20 +223,29 @@ class KernelManager:
 
         # 4. Root Filesystem
         try:
-            df_out = subprocess.check_output(['df', '-T', '/'], text=True).splitlines()
+            res = self._run_host_subproc(['df', '-T', '/'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5)
+            df_out = res.stdout.splitlines() if res.returncode == 0 else []
             if len(df_out) > 1:
                 info['root_fs'] = df_out[1].split()[1]
         except Exception:
             pass
 
-        # 5. Loaded kernel modules from lsmod
+        # 5. Loaded kernel modules from lsmod or /proc/modules
         try:
-            lsmod_out = subprocess.check_output(['lsmod'], text=True)
             modules = []
-            for line in lsmod_out.splitlines()[1:]:
-                parts = line.split()
-                if parts:
-                    modules.append(parts[0])
+            if os.path.exists('/proc/modules'):
+                with open('/proc/modules', 'r') as f:
+                    for line in f:
+                        parts = line.split()
+                        if parts:
+                            modules.append(parts[0])
+            else:
+                res = self._run_host_subproc(['lsmod'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5)
+                if res.returncode == 0:
+                    for line in res.stdout.splitlines()[1:]:
+                        parts = line.split()
+                        if parts:
+                            modules.append(parts[0])
             info['loaded_modules'] = modules
         except Exception:
             pass
@@ -153,24 +253,26 @@ class KernelManager:
         # 6. Wi-Fi adapter detection
         info['wifi_adapter'] = None
         try:
-            lspci_out = subprocess.check_output(['lspci'], text=True)
-            for line in lspci_out.splitlines():
-                if any(w in line.lower() for w in ['wireless', 'wi-fi', 'network controller', '802.11']):
-                    parts = line.split(':', 2)
-                    info['wifi_adapter'] = parts[2].strip() if len(parts) >= 3 else line.strip()
-                    break
+            res = self._run_host_subproc(['lspci'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5)
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    if any(w in line.lower() for w in ['wireless', 'wi-fi', 'network controller', '802.11']):
+                        parts = line.split(':', 2)
+                        info['wifi_adapter'] = parts[2].strip() if len(parts) >= 3 else line.strip()
+                        break
         except Exception:
             pass
 
         # 7. Bluetooth adapter detection
         info['bluetooth_adapter'] = None
         try:
-            lsusb_out = subprocess.check_output(['lsusb'], text=True)
-            for line in lsusb_out.splitlines():
-                if 'bluetooth' in line.lower():
-                    parts = line.split(':', 2)
-                    info['bluetooth_adapter'] = parts[2].strip() if len(parts) >= 3 else line.strip()
-                    break
+            res = self._run_host_subproc(['lsusb'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5)
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    if 'bluetooth' in line.lower():
+                        parts = line.split(':', 2)
+                        info['bluetooth_adapter'] = parts[2].strip() if len(parts) >= 3 else line.strip()
+                        break
             if not info['bluetooth_adapter'] and os.path.exists('/sys/class/bluetooth'):
                 bt_nodes = os.listdir('/sys/class/bluetooth')
                 if bt_nodes:
@@ -233,9 +335,9 @@ class KernelManager:
         self.available_versions = versions
         return versions
 
-    def get_latest_cachy_version(self):
+    def get_latest_cachy_version(self, refresh=False):
         """Fetches the latest official stable CachyOS kernel version."""
-        releases = self.get_available_versions()
+        releases = self.get_available_versions() if (refresh or not getattr(self, 'available_versions', None)) else self.available_versions
         latest_stable = next((r for r in releases if not r['is_experimental']), None)
         
         if latest_stable:
@@ -288,8 +390,14 @@ class KernelManager:
             return True
         return False
 
-    def _run_cmd(self, cmd, cwd=None, progress_callback=None, env=None, tee_log=True):
+    def _run_cmd(self, cmd, cwd=None, progress_callback=None, env=None, tee_log=True, host_exec=True):
         """Runs a command, logs output live, captures errors, and tees to ~/.cache/cachy-kernel-build/build.log."""
+        exec_cmd = list(cmd)
+        exec_cwd = cwd
+        if host_exec and self._can_flatpak_spawn_host() and exec_cmd and exec_cmd[0] != "flatpak-spawn":
+            exec_cmd = self._host_cmd(exec_cmd, cwd=cwd, env=env)
+            exec_cwd = None
+
         if progress_callback:
             progress_callback(f"> {' '.join(cmd)}")
 
@@ -304,7 +412,7 @@ class KernelManager:
         if tee_log:
             try:
                 log_file = open(build_log_path, "a", encoding="utf-8", errors="replace")
-                log_file.write(f"\n--- [Command: {' '.join(cmd)}] ---\n")
+                log_file.write(f"\n--- [Command: {' '.join(exec_cmd)}] ---\n")
                 log_file.flush()
             except Exception:
                 log_file = None
@@ -313,7 +421,7 @@ class KernelManager:
         captured_errors = []
 
         process = subprocess.Popen(
-            cmd, cwd=cwd, env=run_env, stdin=subprocess.DEVNULL,
+            exec_cmd, cwd=exec_cwd, env=run_env, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
 
@@ -364,59 +472,102 @@ class KernelManager:
                 progress_callback(full_error_text)
             raise Exception(full_error_text)
 
-    def check_build_dependencies(self, use_container=False):
-        """Returns a list of missing build dependencies. Checks container engine and image only if use_container is True."""
+    def _check_dpkg_packages_missing(self, pkg_list: list) -> list:
+        """Checks a list of Debian packages on the host (or container if running natively) in one batch."""
+        if not pkg_list:
+            return []
+        installed = set()
+        # 1. Try reading /run/host/var/lib/dpkg/status or /var/lib/dpkg/status directly for instant non-spawning check
+        for status_file in ("/run/host/var/lib/dpkg/status", "/var/lib/dpkg/status"):
+            if os.path.isfile(status_file):
+                try:
+                    with open(status_file, "r", encoding="utf-8", errors="ignore") as f:
+                        cur_pkg = None
+                        cur_provides = []
+                        cur_installed = False
+                        for line in f:
+                            if line.startswith("Package: "):
+                                cur_pkg = line[9:].strip()
+                            elif line.startswith("Provides: "):
+                                prov_raw = line[10:].strip()
+                                cur_provides = [p.strip().split()[0] for p in prov_raw.split(",") if p.strip()]
+                            elif line.startswith("Status: "):
+                                cur_installed = ("install ok installed" in line)
+                            elif line == "\n":
+                                if cur_installed and cur_pkg:
+                                    installed.add(cur_pkg)
+                                    for prov in cur_provides:
+                                        installed.add(prov)
+                                cur_pkg = None
+                                cur_provides = []
+                                cur_installed = False
+                        if cur_installed and cur_pkg:
+                            installed.add(cur_pkg)
+                            for prov in cur_provides:
+                                installed.add(prov)
+                    if installed:
+                        return [p for p in pkg_list if p not in installed]
+                except Exception:
+                    pass
+
+        # 2. Fallback to dpkg-query via host bridge
         missing = []
-        for pkg in self.REQUIRED_BUILD_DEPS:
+        for pkg in pkg_list:
             try:
-                res = subprocess.run(
+                res = self._run_host_subproc(
                     ['dpkg-query', '-W', '-f=${Status}', pkg],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
+                    text=True,
+                    timeout=5
                 )
                 if 'install ok installed' not in res.stdout:
                     missing.append(pkg)
             except Exception:
                 missing.append(pkg)
+        return missing
 
-        # Include container engine and container image dependencies ONLY if build in container is selected
+    def check_build_dependencies(self, use_container=False):
+        """Returns a list of missing build dependencies. Checks container engine and image only if use_container is True."""
         if use_container:
+            missing = []
             engine = self.get_container_engine()
             if not engine:
                 missing.append('podman')
             elif not self.has_container_image():
                 missing.append(f"container-image:{self.container_image_tag}")
+            return missing
 
-        return missing
+        return self._check_dpkg_packages_missing(self.REQUIRED_BUILD_DEPS)
 
     def install_build_dependencies(self, progress_callback=None, use_container=False, force_rebuild=False):
         """
         Installs kernel build dependencies using pkexec apt-get.
         Installs container engine and prepares container image ONLY if use_container is True.
         """
-        pkgs = list(self.REQUIRED_BUILD_DEPS)
+        pkgs = [] if use_container else list(self.REQUIRED_BUILD_DEPS)
         if use_container:
             engine = self.get_container_engine()
-            if not engine and 'podman' not in pkgs:
+            if not engine:
                 pkgs.append('podman')
 
-        if progress_callback:
-            progress_callback("\n=======================================================")
-            mode_desc = "container & host" if use_container else "host compiler"
-            progress_callback(f"[*] Requesting root authorization via pkexec to install {mode_desc} dependencies...")
-            progress_callback("=======================================================\n")
-            progress_callback(f"Packages to install: {' '.join(pkgs)}\n")
+        if pkgs:
+            if progress_callback:
+                progress_callback("\n=======================================================")
+                mode_desc = "container engine" if use_container else "host compiler"
+                progress_callback(f"[*] Requesting root authorization via pkexec to install {mode_desc} dependencies...")
+                progress_callback("=======================================================\n")
+                progress_callback(f"Packages to install: {' '.join(pkgs)}\n")
 
-        cmd = ['pkexec', 'apt-get', 'install', '-y'] + pkgs
-        try:
-            self._run_cmd(cmd, progress_callback=progress_callback)
-            if progress_callback:
-                progress_callback("\n[✓] APT dependencies installed successfully!\n")
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"\n[!] APT dependency installation failed: {e}\n")
-            return False
+            cmd = ['pkexec', 'apt-get', 'install', '-y'] + pkgs
+            try:
+                self._run_cmd(cmd, progress_callback=progress_callback)
+                if progress_callback:
+                    progress_callback("\n[✓] APT dependencies installed successfully!\n")
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"\n[!] APT dependency installation failed: {e}\n")
+                return False
 
         # Build and verify container image ONLY if container build is selected
         if use_container:
@@ -440,20 +591,7 @@ class KernelManager:
 
     def check_signing_dependencies(self):
         """Returns a list of missing host packages required for Secure Boot kernel signing."""
-        missing = []
-        for pkg in self.REQUIRED_SIGNING_DEPS:
-            try:
-                res = subprocess.run(
-                    ['dpkg-query', '-W', '-f=${Status}', pkg],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                if 'install ok installed' not in res.stdout:
-                    missing.append(pkg)
-            except Exception:
-                missing.append(pkg)
-        return missing
+        return self._check_dpkg_packages_missing(self.REQUIRED_SIGNING_DEPS)
 
     def ensure_signing_dependencies(self, progress_callback=None):
         """Verifies that host signing packages are installed, installing them via pkexec apt-get if missing."""
@@ -479,10 +617,10 @@ class KernelManager:
         return os.path.join(self.output_base_dir, folder_name)
 
     def get_container_engine(self):
-        """Returns 'podman' or 'docker' if available, otherwise None."""
-        if shutil.which("podman"):
+        """Returns 'podman' or 'docker' if available on host (or locally), otherwise None."""
+        if self._which_host("podman"):
             return "podman"
-        if shutil.which("docker"):
+        if self._which_host("docker"):
             return "docker"
         return None
 
@@ -493,20 +631,20 @@ class KernelManager:
             return False
         try:
             if engine == "podman":
-                res = subprocess.run([engine, "image", "exists", self.container_image_tag],
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                res = self._run_host_subproc([engine, "image", "exists", self.container_image_tag],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
                 if res.returncode != 0:
                     return False
             else:
-                res = subprocess.run([engine, "inspect", "--type=image", self.container_image_tag],
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                res = self._run_host_subproc([engine, "inspect", "--type=image", self.container_image_tag],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
                 if res.returncode != 0:
                     return False
 
             # Verify that essential build tools (such as libdw-dev) exist in the container image
-            check_pkg = subprocess.run(
+            check_pkg = self._run_host_subproc(
                 [engine, "run", "--rm", self.container_image_tag, "dpkg-query", "-W", "-f=${Status}", "libdw-dev"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=15
             )
             return "install ok installed" in check_pkg.stdout
         except Exception:
@@ -527,9 +665,16 @@ class KernelManager:
             progress_callback(f"\n[*] Preparing {self.container_image_tag} using {engine}...")
             progress_callback("Base: Debian Bookworm (ensures maximum generic compatibility and zero host dependencies)")
 
+        self._stage_host_helper_files()
+        staged_cf = os.path.join(self.config_dir, "Containerfile")
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        containerfile_path = os.path.join(base_dir, "Containerfile")
-        if not os.path.exists(containerfile_path):
+        local_cf = os.path.join(base_dir, "Containerfile")
+
+        if os.path.isfile(staged_cf):
+            containerfile_path = staged_cf
+        elif not self.is_flatpak() and os.path.isfile(local_cf):
+            containerfile_path = local_cf
+        else:
             containerfile_path = os.path.join(self.download_dir, "Containerfile")
             os.makedirs(self.download_dir, exist_ok=True)
             with open(containerfile_path, "w") as cf:
@@ -731,12 +876,13 @@ WORKDIR /workspace
             if not os.path.isfile(path) or os.path.getsize(path) < 10000000:
                 return False
             try:
-                res = subprocess.run(['tar', '-tzf', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return res.returncode == 0
+                with open(path, "rb") as tf:
+                    magic = tf.read(2)
+                return magic == b"\x1f\x8b"
             except Exception:
                 return False
 
-        # Download tarball with progress indication and integrity check
+        # Download tarball with streaming progress indication and integrity check
         if not is_tarball_valid(archive_path):
             if os.path.exists(archive_path):
                 try:
@@ -747,16 +893,25 @@ WORKDIR /workspace
             if progress_callback:
                 progress_callback(f"Downloading from {self.download_url}...")
 
-            def report_hook(block_num, block_size, total_size):
-                if total_size > 0 and block_num % 1000 == 0:
-                    downloaded = block_num * block_size
-                    percent = min(100, int(downloaded * 100 / total_size))
-                    mb_down = downloaded / (1024 * 1024)
-                    mb_total = total_size / (1024 * 1024)
-                    if progress_callback:
-                        progress_callback(f"Downloading: {percent}% ({mb_down:.1f} MB / {mb_total:.1f} MB)")
-
-            urllib.request.urlretrieve(self.download_url, part_path, reporthook=report_hook)
+            headers = {'User-Agent': 'Debian-CachyOS-Kernel-Updater'}
+            with requests.get(self.download_url, headers=headers, stream=True, timeout=30) as resp:
+                resp.raise_for_status()
+                total_size = int(resp.headers.get('Content-Length', 0))
+                downloaded = 0
+                last_pct = -2
+                with open(part_path, "wb") as out_f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 256):
+                        if chunk:
+                            out_f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                percent = min(100, int(downloaded * 100 / total_size))
+                                if percent >= last_pct + 2 or percent == 100:
+                                    last_pct = percent
+                                    mb_down = downloaded / (1024 * 1024)
+                                    mb_total = total_size / (1024 * 1024)
+                                    if progress_callback:
+                                        progress_callback(f"Downloading: {percent}% ({mb_down:.1f} MB / {mb_total:.1f} MB)")
 
             if not is_tarball_valid(part_path):
                 raise Exception("Downloaded kernel archive is incomplete or corrupted. Please check network connection.")
@@ -783,7 +938,7 @@ WORKDIR /workspace
             if progress_callback:
                 progress_callback(f"Extracting {archive_name}...")
 
-            self._run_cmd(['tar', '-xf', archive_path], cwd=self.download_dir, progress_callback=progress_callback)
+            self._run_cmd(['tar', '-xf', archive_path], cwd=self.download_dir, progress_callback=progress_callback, host_exec=False)
 
         # Download official CachyOS config if needed
         config_path = os.path.join(self.download_dir, "config")
@@ -791,7 +946,10 @@ WORKDIR /workspace
             if progress_callback:
                 progress_callback("Fetching official CachyOS kernel config...")
             try:
-                urllib.request.urlretrieve(self.cachy_config_raw, config_path)
+                r_cfg = requests.get(self.cachy_config_raw, headers={'User-Agent': 'Debian-CachyOS-Kernel-Updater'}, timeout=15)
+                if r_cfg.status_code == 200 and len(r_cfg.content) > 1000:
+                    with open(config_path, "wb") as cf:
+                        cf.write(r_cfg.content)
             except Exception:
                 pass
 
@@ -921,35 +1079,35 @@ WORKDIR /workspace
                 '--enable', 'DEBUG_INFO_DWARF5',
             ])
 
-        self._run_cmd(config_sanitize_cmd, cwd=kernel_dir, progress_callback=None)
+        self._run_cmd(['bash'] + config_sanitize_cmd, cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         # 2. CPU Scheduler Configuration (Default: BORE)
         if cpu_scheduler == 'bore':
-            self._run_cmd(['scripts/config', '--enable', 'CONFIG_SCHED_BORE'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--enable', 'CONFIG_SCHED_BORE'], cwd=kernel_dir, progress_callback=None, host_exec=False)
         else:
-            self._run_cmd(['scripts/config', '--disable', 'CONFIG_SCHED_BORE'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--disable', 'CONFIG_SCHED_BORE'], cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         # 3. Compiler & LTO Selection
         use_llvm = compiler_lto.startswith('clang')
         if compiler_lto in ('gcc_none', 'clang_none'):
-            self._run_cmd(['scripts/config', '--disable', 'LTO_CLANG_THIN', '--disable', 'LTO_CLANG_FULL', '--enable', 'LTO_NONE'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--disable', 'LTO_CLANG_THIN', '--disable', 'LTO_CLANG_FULL', '--enable', 'LTO_NONE'], cwd=kernel_dir, progress_callback=None, host_exec=False)
         elif compiler_lto == 'clang_thin':
-            self._run_cmd(['scripts/config', '--enable', 'LTO_CLANG', '--enable', 'LTO_CLANG_THIN', '--disable', 'LTO_NONE', '--disable', 'LTO_CLANG_FULL'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--enable', 'LTO_CLANG', '--enable', 'LTO_CLANG_THIN', '--disable', 'LTO_NONE', '--disable', 'LTO_CLANG_FULL'], cwd=kernel_dir, progress_callback=None, host_exec=False)
         elif compiler_lto == 'clang_full':
-            self._run_cmd(['scripts/config', '--enable', 'LTO_CLANG', '--enable', 'LTO_CLANG_FULL', '--disable', 'LTO_NONE', '--disable', 'LTO_CLANG_THIN'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--enable', 'LTO_CLANG', '--enable', 'LTO_CLANG_FULL', '--disable', 'LTO_NONE', '--disable', 'LTO_CLANG_THIN'], cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         # 4. Tick Rate & Preemption (Default: 1000 Hz + Full Tickless Idle)
         if tick_rate == '1000':
-            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_300', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--enable', 'HZ_1000', '--set-val', 'HZ', '1000'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_300', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--enable', 'HZ_1000', '--set-val', 'HZ', '1000'], cwd=kernel_dir, progress_callback=None, host_exec=False)
         elif tick_rate == '500':
-            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_300', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_500', '--set-val', 'HZ', '500'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_300', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_500', '--set-val', 'HZ', '500'], cwd=kernel_dir, progress_callback=None, host_exec=False)
         elif tick_rate == '300':
-            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_300', '--set-val', 'HZ', '300'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_250', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_300', '--set-val', 'HZ', '300'], cwd=kernel_dir, progress_callback=None, host_exec=False)
         elif tick_rate == '250':
-            self._run_cmd(['scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_300', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_250', '--set-val', 'HZ', '250'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--disable', 'HZ_100', '--disable', 'HZ_300', '--disable', 'HZ_500', '--disable', 'HZ_600', '--disable', 'HZ_750', '--disable', 'HZ_1000', '--enable', 'HZ_250', '--set-val', 'HZ', '250'], cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         if tickless:
-            self._run_cmd(['scripts/config', '--enable', 'NO_HZ_IDLE', '--enable', 'NO_HZ', '--enable', 'NO_HZ_COMMON', '--disable', 'HZ_PERIODIC'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd(['bash', 'scripts/config', '--enable', 'NO_HZ_IDLE', '--enable', 'NO_HZ', '--enable', 'NO_HZ_COMMON', '--disable', 'HZ_PERIODIC'], cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         # Prepare container runner prefix if container build is selected
         container_prefix = []
@@ -1007,7 +1165,17 @@ WORKDIR /workspace
 
             lsmod_host_file = os.path.join(self.download_dir, "host_lsmod.txt")
             try:
-                lsmod_raw = subprocess.check_output(['lsmod'], text=True)
+                if os.path.exists('/proc/modules'):
+                    with open('/proc/modules', 'r') as pm:
+                        mod_lines = ["Module                  Size  Used by"]
+                        for line in pm:
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                mod_lines.append(f"{parts[0]} {parts[1]} {parts[2]}")
+                        lsmod_raw = "\n".join(mod_lines) + "\n"
+                else:
+                    res = self._run_host_subproc(['lsmod'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5)
+                    lsmod_raw = res.stdout if res.returncode == 0 else "Module                  Size  Used by\n"
             except Exception as e:
                 lsmod_raw = "Module                  Size  Used by\n"
                 if progress_callback:
@@ -1271,40 +1439,50 @@ WORKDIR /workspace
         elif 'asus' in mfg:
             safeties.append(('module', 'CONFIG_ASUS_WMI'))
 
+        batched_safety_cmd = ['bash', 'scripts/config']
         for item in safeties:
             if len(item) == 2:
                 action, opt = item
-                flag = f'--{action}'
-                self._run_cmd(['scripts/config', flag, opt], cwd=kernel_dir, progress_callback=None)
+                batched_safety_cmd.extend([f'--{action}', opt])
             elif len(item) == 3:
                 action, opt, val = item
-                flag = f'--{action}'
-                self._run_cmd(['scripts/config', flag, opt, str(val)], cwd=kernel_dir, progress_callback=None)
+                batched_safety_cmd.extend([f'--{action}', opt, str(val)])
 
         if use_localmodconfig:
             nr_cpus = max(16, min(128, hw['threads'] * 2))
-            self._run_cmd(['scripts/config', '--set-val', 'CONFIG_NR_CPUS', str(nr_cpus)], cwd=kernel_dir, progress_callback=None)
+            batched_safety_cmd.extend(['--set-val', 'CONFIG_NR_CPUS', str(nr_cpus)])
+
+        self._run_cmd(batched_safety_cmd, cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         # 6. CPU Microarchitecture Optimization
         if cpu_arch == 'native':
-            self._run_cmd(['scripts/config', '--disable', 'CONFIG_MGENERIC_CPU', '--enable', 'CONFIG_X86_NATIVE_CPU'], cwd=kernel_dir, progress_callback=None)
+            arch_cmd = ['bash', 'scripts/config', '--disable', 'CONFIG_MGENERIC_CPU', '--enable', 'CONFIG_X86_NATIVE_CPU']
             if 'intel' in hw['vendor'].lower():
-                self._run_cmd(['scripts/config', '--enable', 'CONFIG_X86_INTEL_PSTATE', '--enable', 'CONFIG_INTEL_IDLE', '--enable', 'CONFIG_MNATIVE_INTEL'], cwd=kernel_dir, progress_callback=None)
+                arch_cmd.extend(['--enable', 'CONFIG_X86_INTEL_PSTATE', '--enable', 'CONFIG_INTEL_IDLE', '--enable', 'CONFIG_MNATIVE_INTEL'])
             elif 'amd' in hw['vendor'].lower():
-                self._run_cmd(['scripts/config', '--enable', 'CONFIG_X86_AMD_PSTATE', '--enable', 'CONFIG_MNATIVE_AMD'], cwd=kernel_dir, progress_callback=None)
-            self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-native-debian'], cwd=kernel_dir, progress_callback=None)
+                arch_cmd.extend(['--enable', 'CONFIG_X86_AMD_PSTATE', '--enable', 'CONFIG_MNATIVE_AMD'])
+            arch_cmd.extend(['--set-str', 'CONFIG_LOCALVERSION', '-cachyos-native-debian'])
+            self._run_cmd(arch_cmd, cwd=kernel_dir, progress_callback=None, host_exec=False)
             if progress_callback:
                 progress_callback("[✓] CPU Architecture: Native (-march=native enabled, localversion=-cachyos-native-debian)")
         elif cpu_arch == 'x86-64-v3':
-            self._run_cmd(['scripts/config', '--enable', 'CONFIG_GENERIC_CPU', '--disable', 'CONFIG_X86_NATIVE_CPU'], cwd=kernel_dir, progress_callback=None)
-            self._run_cmd(['scripts/config', '--set-val', 'CONFIG_X86_64_VERSION', '3'], cwd=kernel_dir, progress_callback=None)
-            self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-v3-debian'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd([
+                'bash', 'scripts/config',
+                '--enable', 'CONFIG_GENERIC_CPU',
+                '--disable', 'CONFIG_X86_NATIVE_CPU',
+                '--set-val', 'CONFIG_X86_64_VERSION', '3',
+                '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-v3-debian'
+            ], cwd=kernel_dir, progress_callback=None, host_exec=False)
             if progress_callback:
                 progress_callback("[✓] CPU Architecture: Generic x86-64-v3 (AVX2, localversion=-cachyos-v3-debian)")
         else: # generic (x86-64-v2 safe default)
-            self._run_cmd(['scripts/config', '--enable', 'CONFIG_GENERIC_CPU', '--disable', 'CONFIG_X86_NATIVE_CPU'], cwd=kernel_dir, progress_callback=None)
-            self._run_cmd(['scripts/config', '--set-val', 'CONFIG_X86_64_VERSION', '2'], cwd=kernel_dir, progress_callback=None)
-            self._run_cmd(['scripts/config', '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'], cwd=kernel_dir, progress_callback=None)
+            self._run_cmd([
+                'bash', 'scripts/config',
+                '--enable', 'CONFIG_GENERIC_CPU',
+                '--disable', 'CONFIG_X86_NATIVE_CPU',
+                '--set-val', 'CONFIG_X86_64_VERSION', '2',
+                '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'
+            ], cwd=kernel_dir, progress_callback=None, host_exec=False)
             if progress_callback:
                 progress_callback("[✓] CPU Architecture: Generic x86-64 / x86-64-v2 (Safe for all modern CPUs)")
 
@@ -1473,7 +1651,7 @@ echo "=========================================================="
         E.g. linux-image-7.2.10-cachyos-debian -> 7.2.10-cachyos-debian.
         """
         try:
-            res = subprocess.run(
+            res = self._run_host_subproc(
                 ['dpkg-deb', '-f', deb_path, 'Package'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1493,21 +1671,26 @@ echo "=========================================================="
         return ""
 
     def get_sign_script_path(self):
-        """Locates the atomic root helper script sign-kernel.sh."""
+        """Locates the atomic root helper script sign-kernel.sh (prefers host-visible path when in Flatpak)."""
+        self._stage_host_helper_files()
+        staged_script = os.path.join(self.config_dir, "sign-kernel.sh")
+        if self.is_flatpak() and os.path.isfile(staged_script):
+            return staged_script
         candidates = [
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign-kernel.sh"),
+            staged_script,
             "/usr/share/cachy-kernel-updater/sign-kernel.sh",
             os.path.expanduser("~/Projects/debian-cachy-kernel-updater/sign-kernel.sh")
         ]
         for p in candidates:
             if os.path.isfile(p):
                 return p
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign-kernel.sh")
+        return staged_script
 
     def get_mok_status(self, output_dir: str = None) -> dict:
         """
         Inspects UEFI Secure Boot state and MOK key existence in the designated output_dir.
-        Invokes: bash sign-kernel.sh --status <output_dir>
+        Checks kernel EFI variables directly, sign-kernel.sh --status, and mokutil.
         Returns a dict containing state flags and certificate paths.
         """
         target_dir = output_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
@@ -1519,9 +1702,39 @@ echo "=========================================================="
         key_exists = "no"
         key_enrolled = "no"
 
+        # 1. Direct EFI variable check (/sys/firmware/efi/efivars/SecureBoot-*)
+        for efivar_pattern in (
+            "/sys/firmware/efi/efivars/SecureBoot-*",
+            "/run/host/sys/firmware/efi/efivars/SecureBoot-*",
+        ):
+            for efivar_path in glob.glob(efivar_pattern):
+                if "SecureBootMode" in efivar_path:
+                    continue
+                try:
+                    with open(efivar_path, "rb") as ef:
+                        data = ef.read()
+                    if len(data) >= 5 and data[4] == 1:
+                        sb_state = "enabled"
+                        break
+                except Exception:
+                    pass
+
+        # 1b. Host-bridged EFI variable check if inside Flatpak where /sys/firmware is hidden by bwrap
+        if sb_state == "disabled" and self._can_flatpak_spawn_host():
+            try:
+                res = self._run_host_subproc(
+                    ['od', '-An', '-t', 'u1', '-j', '4', '-N', '1', '/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c'],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=4
+                )
+                if res.returncode == 0 and res.stdout.strip() == "1":
+                    sb_state = "enabled"
+            except Exception:
+                pass
+
+        # 2. Check via sign-kernel.sh --status
         if os.path.isfile(script_path):
             try:
-                res = subprocess.run(
+                res = self._run_host_subproc(
                     ['bash', script_path, '--status', target_dir],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -1530,7 +1743,9 @@ echo "=========================================================="
                 )
                 for line in res.stdout.splitlines():
                     if line.startswith("SB_STATE="):
-                        sb_state = line.split("=", 1)[1].strip()
+                        val = line.split("=", 1)[1].strip()
+                        if val == "enabled":
+                            sb_state = "enabled"
                     elif line.startswith("KEY_EXISTS="):
                         key_exists = line.split("=", 1)[1].strip()
                     elif line.startswith("KEY_ENROLLED="):
@@ -1540,10 +1755,10 @@ echo "=========================================================="
             except Exception as e:
                 print(f"Error checking status via sign-kernel.sh: {e}")
 
-        # Fallback check if script execution failed
-        if sb_state == "disabled" and shutil.which("mokutil"):
+        # 3. Fallback check via mokutil (host or local)
+        if sb_state == "disabled" and self._which_host("mokutil"):
             try:
-                res = subprocess.run(['mokutil', '--sb-state'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+                res = self._run_host_subproc(['mokutil', '--sb-state'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
                 if 'SecureBoot enabled' in res.stdout:
                     sb_state = "enabled"
             except Exception:
@@ -1554,6 +1769,13 @@ echo "=========================================================="
         pem_path = os.path.join(target_dir, "MOK.pem")
         if os.path.isfile(der_path) and os.path.isfile(priv_path) and os.path.isfile(pem_path):
             key_exists = "yes"
+            if key_enrolled != "yes" and self._which_host("mokutil"):
+                try:
+                    res = self._run_host_subproc(['mokutil', '--test-key', der_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=5)
+                    if 'is already enrolled' in res.stdout.lower():
+                        key_enrolled = "yes"
+                except Exception:
+                    pass
 
         return {
             "secure_boot_enabled": (sb_state == "enabled"),
@@ -1808,14 +2030,34 @@ echo "=========================================================="
     sign_kernel_secureboot = sign_existing_installed_kernel
 
     def ensure_mok_keys(self, output_dir: str = None) -> dict:
-        """Returns co-located MOK certificate paths in output_dir."""
+        """Returns co-located MOK certificate paths in output_dir, generating them if missing."""
         target_dir = output_dir or self.find_deb_directory() or self.last_output_dir or self.get_output_kernel_dir(is_native=False)
         if not target_dir:
             target_dir = self.output_base_dir
+        os.makedirs(target_dir, exist_ok=True)
+        priv_path = os.path.join(target_dir, "MOK.priv")
+        der_path = os.path.join(target_dir, "MOK.der")
+        pem_path = os.path.join(target_dir, "MOK.pem")
+        if not (os.path.isfile(priv_path) and os.path.isfile(der_path) and os.path.isfile(pem_path)):
+            try:
+                self._run_host_subproc([
+                    "openssl", "req", "-new", "-x509", "-newkey", "rsa:2048",
+                    "-keyout", priv_path, "-outform", "DER", "-out", der_path,
+                    "-nodes", "-days", "36500", "-subj", "/CN=Debian CachyOS Kernel Signing Key/"
+                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._run_host_subproc([
+                    "openssl", "x509", "-inform", "DER", "-in", der_path,
+                    "-outform", "PEM", "-out", pem_path
+                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                os.chmod(priv_path, 0o600)
+                os.chmod(der_path, 0o644)
+                os.chmod(pem_path, 0o644)
+            except Exception:
+                pass
         return {
-            "priv": os.path.join(target_dir, "MOK.priv"),
-            "der": os.path.join(target_dir, "MOK.der"),
-            "pem": os.path.join(target_dir, "MOK.pem")
+            "priv": priv_path,
+            "der": der_path,
+            "pem": pem_path
         }
 
     def is_mok_enrolled(self, der_path: str = None) -> bool:
@@ -1830,15 +2072,40 @@ echo "=========================================================="
     enroll_mok_key_gui = enroll_mok_key
 
     def get_installed_kernels(self):
-        """Returns a list of installed linux-image packages."""
+        """Returns a list of installed linux-image packages on the host."""
+        packages = []
+        for status_file in ("/run/host/var/lib/dpkg/status", "/var/lib/dpkg/status"):
+            if os.path.isfile(status_file):
+                try:
+                    with open(status_file, "r", encoding="utf-8", errors="ignore") as f:
+                        cur_pkg = None
+                        cur_installed = False
+                        for line in f:
+                            if line.startswith("Package: "):
+                                cur_pkg = line[9:].strip()
+                            elif line.startswith("Status: "):
+                                cur_installed = ("install ok installed" in line)
+                            elif line == "\n":
+                                if cur_installed and cur_pkg and cur_pkg.startswith("linux-image-") and "dbg" not in cur_pkg:
+                                    packages.append(cur_pkg)
+                                cur_pkg = None
+                                cur_installed = False
+                    if packages:
+                        return sorted(set(packages))
+                except Exception:
+                    pass
         try:
-            output = subprocess.check_output(
-                ['dpkg-query', '-W', '-f=${binary:Package}\\n', 'linux-image-*'], 
-                text=True
+            res = self._run_host_subproc(
+                ['dpkg-query', '-W', '-f=${binary:Package}\\n', 'linux-image-*'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=8
             )
-            packages = [line.strip() for line in output.split('\n') if line.strip() and 'dbg' not in line]
+            if res.returncode == 0:
+                packages = [line.strip() for line in res.stdout.split('\n') if line.strip() and 'dbg' not in line]
             return packages
-        except subprocess.CalledProcessError:
+        except Exception:
             return []
 
     def remove_kernel(self, package_name, progress_callback=None):
@@ -1863,6 +2130,7 @@ echo "=========================================================="
     def sign_deb_packages(self, deb_dir=None, gpg_key_id=None, progress_callback=None):
         """Signs the compiled .deb packages using GPG."""
         candidates = [
+            os.path.join(self.config_dir, "sign-kernel.sh"),
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "sign-kernel.sh"),
             "/usr/share/cachy-kernel-updater/sign-kernel.sh",
             os.path.expanduser("~/Projects/debian-cachy-kernel-updater/sign-kernel.sh")

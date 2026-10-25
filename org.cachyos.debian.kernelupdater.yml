@@ -1,6 +1,6 @@
 app-id: org.cachyos.debian.kernelupdater
 runtime: org.gnome.Platform
-runtime-version: '46'
+runtime-version: '50'
 sdk: org.gnome.Sdk
 command: cachy-kernel-updater
 
@@ -11,6 +11,9 @@ finish-args:
   - --socket=wayland
   - --device=dri
   - --filesystem=host
+  - --filesystem=/var/lib/dpkg:ro
+  - --filesystem=/boot:ro
+  - --filesystem=/sys/firmware/efi/efivars:ro
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.freedesktop.Notifications
   - --system-talk-name=org.freedesktop.PolicyKit1
@@ -19,7 +22,14 @@ modules:
   - name: python3-dependencies
     buildsystem: simple
     build-commands:
-      - pip3 install --no-index --find-links=flatpak/wheels --prefix=${FLATPAK_DEST} requests urllib3 certifi idna charset-normalizer
+      - install -d ${FLATPAK_DEST}/lib/python3/site-packages
+      - |
+        python3 -c '
+        import glob, zipfile, sys
+        for whl in glob.glob("flatpak/wheels/*.whl"):
+            with zipfile.ZipFile(whl, "r") as z:
+                z.extractall(sys.argv[1])
+        ' "${FLATPAK_DEST}/lib/python3/site-packages"
     sources:
       - type: dir
         path: flatpak/wheels
@@ -37,7 +47,12 @@ modules:
       - |
         cat << 'EOF' > ${FLATPAK_DEST}/bin/cachy-kernel-updater
         #!/usr/bin/env bash
-        export PYTHONPATH="/app/lib/python3.11/site-packages:${PYTHONPATH}"
+        export PYTHONPATH="/app/lib/python3/site-packages:${PYTHONPATH}"
+        for sp in /app/lib/python*/site-packages /app/lib64/python*/site-packages; do
+            if [ -d "$sp" ]; then
+                export PYTHONPATH="${sp}:${PYTHONPATH}"
+            fi
+        done
         exec /usr/bin/python3 /app/share/cachy-kernel-updater/main.py "$@"
         EOF
       - chmod 755 ${FLATPAK_DEST}/bin/cachy-kernel-updater

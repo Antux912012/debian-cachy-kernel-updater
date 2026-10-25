@@ -11,7 +11,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Gio
 
 from kernel_manager import KernelManager
 
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):
@@ -176,7 +176,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.kernel_version_row.set_title("Kernel Version")
         self.kernel_version_row.set_subtitle("Pre-selects latest Stable release; testing versions marked as (Experimental)")
         self.kernel_version_row.set_tooltip_text("Select the CachyOS kernel release to download and compile. Pre-selects the latest stable release.")
-        initial_version = self.kernel_manager.get_latest_cachy_version()
+        initial_version = self.kernel_manager.latest_version or "7.3.0-4"
         self.version_string_list = Gtk.StringList.new([f"{initial_version} (Stable)"])
         self.kernel_version_row.set_model(self.version_string_list)
         self.kernel_version_row.set_selected(0)
@@ -212,7 +212,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         # 1. Use Current System Hardware Config (localmodconfig / Host .config base)
         self.hw_config_row = Adw.ActionRow()
         self.hw_config_row.set_title("Use Current System Hardware Config (localmodconfig)")
-        self.hw_config_row.set_subtitle("Tailors drivers to machine while preserving Wi-Fi, Bluetooth, storage & filesystem baselines.")
+        self.hw_config_row.set_subtitle("Tailors drivers to machine while preserving Wi-Fi, Bluetooth, storage &amp; filesystem baselines.")
         self.hw_config_row.set_tooltip_text("Scans active hardware drivers from the running system and trims unused drivers, while ensuring Wi-Fi, Bluetooth, crypto, storage, and filesystem drivers are always preserved.")
         self.hw_config_check = Gtk.CheckButton()
         self.hw_config_check.set_active(True)
@@ -518,6 +518,12 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         log_desc_label.set_hexpand(True)
         log_toolbar.append(log_desc_label)
 
+        self.invert_terminal_theme = False
+        self.invert_log_button = Gtk.Button(label="🌗 Invert Colors")
+        self.invert_log_button.set_tooltip_text("Switch terminal between White-on-Black and Black-on-White (auto-adapts to Adwaita Light/Dark by default).")
+        self.invert_log_button.connect("clicked", self.on_invert_log_clicked)
+        log_toolbar.append(self.invert_log_button)
+
         self.copy_log_button = Gtk.Button(label="📋 Copy Error Log")
         self.copy_log_button.set_tooltip_text("Copy build errors and recent terminal output to system clipboard.")
         self.copy_log_button.connect("clicked", self.on_copy_log_clicked)
@@ -541,12 +547,24 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.terminal_view.set_bottom_margin(10)
         self.terminal_view.add_css_class("terminal-view")
 
-        terminal_scroller = Gtk.ScrolledWindow()
-        terminal_scroller.set_child(self.terminal_view)
-        terminal_scroller.set_min_content_height(260)
-        terminal_scroller.set_vexpand(True)
-        terminal_scroller.add_css_class("terminal-container")
-        log_expander_box.append(terminal_scroller)
+        self.terminal_scroller = Gtk.ScrolledWindow()
+        self.terminal_scroller.set_child(self.terminal_view)
+        self.terminal_scroller.set_min_content_height(260)
+        self.terminal_scroller.set_vexpand(True)
+        self.terminal_scroller.add_css_class("terminal-container")
+        log_expander_box.append(self.terminal_scroller)
+
+        # Configure adaptive Light/Dark theme tag & Adw.StyleManager listener for terminal view
+        buf = self.terminal_view.get_buffer()
+        self.terminal_theme_tag = buf.create_tag("terminal_theme")
+        self.style_manager = Adw.StyleManager.get_default()
+        if self.style_manager:
+            self.style_manager.connect("notify::dark", self._on_theme_changed)
+        settings = Gtk.Settings.get_default()
+        if settings:
+            settings.connect("notify::gtk-application-prefer-dark-theme", self._on_theme_changed)
+            settings.connect("notify::gtk-theme-name", self._on_theme_changed)
+        self._update_terminal_theme()
 
         self.log_expander.set_child(log_expander_box)
         self.content_box.append(self.log_expander)
@@ -671,22 +689,85 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
                 background-color: rgba(0, 168, 150, 0.15);
                 border-radius: 6px;
             }
-            /* Modern Terminal View */
+            /* Modern Adaptive Terminal View (Light & Dark Adwaita Theme Support) */
             .terminal-container {
                 border-radius: 8px;
-                border: 1px solid rgba(0, 168, 150, 0.3);
+                border: 1px solid rgba(0, 168, 150, 0.45);
             }
-            textview.terminal-view text {
+            scrolledwindow.terminal-container.terminal-dark,
+            textview.terminal-view.terminal-dark,
+            textview.terminal-view.terminal-dark text {
                 font-family: monospace;
                 font-size: 9.5pt;
-                background-color: #0c1416;
-                color: #e0f2f1;
+                background-color: #000000;
+                background-image: none;
+                color: #ffffff;
+                caret-color: #ffffff;
+            }
+            scrolledwindow.terminal-container.terminal-light,
+            textview.terminal-view.terminal-light,
+            textview.terminal-view.terminal-light text {
+                font-family: monospace;
+                font-size: 9.5pt;
+                background-color: #ffffff;
+                background-image: none;
+                color: #000000;
+                caret-color: #000000;
             }
         """
         provider.load_from_data(css)
         display = Gdk.Display.get_default()
         if display:
-            Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+    def _is_dark_theme_active(self) -> bool:
+        """Detects whether Adwaita / GTK is currently using a dark color scheme."""
+        is_dark = False
+        if hasattr(self, "style_manager") and self.style_manager:
+            is_dark = bool(self.style_manager.get_dark())
+        else:
+            settings = Gtk.Settings.get_default()
+            if settings:
+                prefer_dark = settings.get_property("gtk-application-prefer-dark-theme")
+                theme_name = (settings.get_property("gtk-theme-name") or "").lower()
+                is_dark = bool(prefer_dark or "dark" in theme_name)
+        if getattr(self, "invert_terminal_theme", False):
+            is_dark = not is_dark
+        return is_dark
+
+    def _on_theme_changed(self, *args):
+        """Callback when Adwaita Light/Dark mode changes."""
+        self._update_terminal_theme()
+
+    def on_invert_log_clicked(self, button):
+        """Allows toggling White-on-Black vs Black-on-White manually in addition to auto Adwaita theme adaptation."""
+        self.invert_terminal_theme = not getattr(self, "invert_terminal_theme", False)
+        self._update_terminal_theme()
+
+    def _update_terminal_theme(self):
+        """Applies high-contrast White-on-Black (Dark mode) or Black-on-White (Light mode) to the build log terminal."""
+        use_dark_terminal = self._is_dark_theme_active()
+        for widget in (getattr(self, "terminal_view", None), getattr(self, "terminal_scroller", None)):
+            if widget is None:
+                continue
+            if use_dark_terminal:
+                widget.remove_css_class("terminal-light")
+                widget.add_css_class("terminal-dark")
+            else:
+                widget.remove_css_class("terminal-dark")
+                widget.add_css_class("terminal-light")
+
+        if hasattr(self, "terminal_theme_tag") and self.terminal_theme_tag:
+            if use_dark_terminal:
+                self.terminal_theme_tag.set_property("foreground", "#ffffff")
+                self.terminal_theme_tag.set_property("background", "#000000")
+                self.terminal_theme_tag.set_property("paragraph-background", "#000000")
+            else:
+                self.terminal_theme_tag.set_property("foreground", "#000000")
+                self.terminal_theme_tag.set_property("background", "#ffffff")
+                self.terminal_theme_tag.set_property("paragraph-background", "#ffffff")
+            buf = self.terminal_view.get_buffer()
+            buf.apply_tag(self.terminal_theme_tag, buf.get_start_iter(), buf.get_end_iter())
 
     def log(self, message):
         """Thread-safe logging to the textview terminal."""
@@ -695,7 +776,10 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
     def _log_idle(self, message):
         buffer = self.terminal_view.get_buffer()
         end_iter = buffer.get_end_iter()
-        buffer.insert(end_iter, message + "\n")
+        if hasattr(self, "terminal_theme_tag") and self.terminal_theme_tag:
+            buffer.insert_with_tags(end_iter, message + "\n", self.terminal_theme_tag)
+        else:
+            buffer.insert(end_iter, message + "\n")
         mark = buffer.create_mark(None, buffer.get_end_iter(), False)
         self.terminal_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
         return False
@@ -735,7 +819,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
             Gio.AppInfo.launch_default_for_uri(f"file://{target_dir}", None)
         except Exception:
             try:
-                subprocess.Popen(['xdg-open', target_dir])
+                subprocess.Popen(self.kernel_manager._host_cmd(['xdg-open', target_dir]))
             except Exception as e:
                 self.log(f"[!] Could not open folder: {e}")
 
@@ -781,7 +865,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
             self.hw_config_check.set_sensitive(True)
             self.hw_config_check.set_active(True)
             self.hw_config_row.set_sensitive(True)
-            self.hw_config_row.set_subtitle("Tailors drivers to machine while preserving Wi-Fi, Bluetooth, storage & filesystem baselines.")
+            self.hw_config_row.set_subtitle("Tailors drivers to machine while preserving Wi-Fi, Bluetooth, storage &amp; filesystem baselines.")
             self.log("[i] Native Host Build selected: compiling directly on host.")
 
         # Re-check dependencies dynamically for the newly selected environment
@@ -853,9 +937,12 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
                 pass
         self.log(f"[*] Opening output folder: {out_dir}")
         try:
-            subprocess.Popen(['xdg-open', out_dir])
-        except Exception as e:
-            self.log(f"[!] Could not open folder: {e}")
+            Gio.AppInfo.launch_default_for_uri(f"file://{out_dir}", None)
+        except Exception:
+            try:
+                subprocess.Popen(self.kernel_manager._host_cmd(['xdg-open', out_dir]))
+            except Exception as e:
+                self.log(f"[!] Could not open folder: {e}")
 
     def on_install_deps_clicked(self, button):
         use_container = (self.build_mode_row.get_selected() == 1)
@@ -1647,5 +1734,18 @@ class KernelUpdaterApp(Adw.Application):
 
 
 if __name__ == '__main__':
+    cli_flags = {
+        '--check', '--status-sb', '--install-deps', '--build', '--install',
+        '--rollback', '--sign-mok', '--sign-deb-mok', '--enroll-mok',
+        '--reset-mok', '--sign-debs'
+    }
+    if '--version' in sys.argv[1:]:
+        print(f"Debian CachyOS Kernel Updater v{APP_VERSION}")
+        sys.exit(0)
+    if any(arg.split('=')[0] in cli_flags for arg in sys.argv[1:]):
+        import runpy
+        km_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'kernel_manager.py')
+        runpy.run_path(km_path, run_name='__main__')
+        sys.exit(0)
     app = KernelUpdaterApp()
     sys.exit(app.run(sys.argv))

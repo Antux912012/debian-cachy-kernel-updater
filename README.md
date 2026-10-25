@@ -5,7 +5,7 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.1.2-00A896.svg)
+![Version](https://img.shields.io/badge/version-1.1.3-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 <p align="center">
@@ -99,13 +99,13 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.1.2 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.2):
+Download the pre-compiled `.deb` package from the [v1.1.3 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.3):
 
-* 📦 **[cachy-kernel-updater_1.1.2_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.2/cachy-kernel-updater_1.1.2_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.3_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.3/cachy-kernel-updater_1.1.3_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.1.2_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.1.3_all.deb
 ```
 
 ---
@@ -114,7 +114,7 @@ sudo apt install -y ./cachy-kernel-updater_1.1.2_all.deb
 
 Download and install the standalone `.flatpak` bundle:
 ```bash
-flatpak install --user cachy-kernel-updater_1.1.2.flatpak
+flatpak install --user cachy-kernel-updater_1.1.3.flatpak
 ```
 Or run directly:
 ```bash
@@ -208,13 +208,13 @@ sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-Cachy
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.2_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.3_all.deb`.
 
 ### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
 ./build_flatpak.sh
 ```
-This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.2.flatpak`.
+This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.3.flatpak`.
 
 ---
 
@@ -262,6 +262,12 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 ---
 
 ## 📜 Changelog
+
+### v1.1.3
+- **Fixed Flatpak UEFI Secure Boot Recognition**: Added direct kernel EFI variable inspection (`/sys/firmware/efi/efivars/SecureBoot-*`, `/run/host/sys/firmware/efi/efivars/SecureBoot-*`, and host `od`/`mokutil` bridge) and fixed `sign-kernel.sh --status` to run without requiring `/run/lock` exclusive locks.
+- **Fixed Flatpak Sandbox Host Execution (`flatpak-spawn --host`)**: Bridged all host operations (`dpkg`, `pkexec`, `make`, `podman`, `mokutil`, `sbsign`, `lspci`, `lsusb`), staged `sign-kernel.sh` and `Containerfile` to `~/.config/cachy-kernel-updater/` for host visibility, and exposed `/var/lib/dpkg:ro`, `/boot:ro`, and `/sys/firmware/efi/efivars:ro` to the Flatpak runtime.
+- **Fixed Kernel Download & Config Sanitization Performance**: Switched kernel source downloads to streaming `requests.get()` with live MB/percentage progress reporting and gzip header verification; batched the ~180 `scripts/config` safety baseline flags into a single fast invocation.
+- **Adaptive Light/Dark Build Log Terminal**: Fixed the build log terminal view so it dynamically adapts to Adwaita Light Mode (black text `#000000` on white background `#ffffff`) and Dark Mode (white text `#ffffff` on black background `#000000`) with a manual `🌗 Invert Colors` toggle button.
 
 ### v1.1.2
 - **Fixed Missing Wi-Fi & Bluetooth Drivers (Safety Baseline Overhaul)**: Resolved issue where `make localmodconfig` stripped Wi-Fi and Bluetooth drivers and crypto algorithms that were not actively loaded into memory at compile-time.

@@ -14,16 +14,15 @@ OUTPUT_DIR="${2:-}"
 ARG3="${3:-}"
 ARG4="${4:-}"
 
+log_info()  { echo "[INFO] $*"; }
+log_ok()    { echo "[SUCCESS] $*"; }
+log_warn()  { echo "[WARN] $*"; }
+log_err()   { echo "[ERROR] $*" >&2; }
+
 # Resolve real non-root user ownership so the desktop app can always read/retrieve certificates
 REAL_UID="${PKEXEC_UID:-${SUDO_UID:-$(id -u)}}"
 REAL_GID=$(id -g "$REAL_UID" 2>/dev/null || echo "$REAL_UID")
 REAL_USER_HOME=$(getent passwd "$REAL_UID" 2>/dev/null | cut -d: -f6 || echo "${HOME:-/root}")
-
-# Concurrency lockfile protection via flock
-LOCK_FILE="/run/lock/cachy-kernel-updater.lock"
-[[ ! -d "/run/lock" ]] && LOCK_FILE="/tmp/cachy-kernel-updater.lock"
-exec 200>"$LOCK_FILE"
-flock -n 200 || { log_err "Another kernel update or signing operation is already running. Aborting."; exit 1; }
 
 # Active running kernel safety guard
 RUNNING_KVER=$(uname -r)
@@ -36,23 +35,35 @@ if [[ -z "$OUTPUT_DIR" || "$OUTPUT_DIR" == "auto" ]]; then
     fi
 fi
 
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
 MOK_PRIV="${OUTPUT_DIR}/MOK.priv"
 MOK_DER="${OUTPUT_DIR}/MOK.der"
 MOK_PEM="${OUTPUT_DIR}/MOK.pem"
 
 SYS_MOK_DIR="/var/lib/shim-signed/mok"
 
-log_info()  { echo "[INFO] $*"; }
-log_ok()    { echo "[SUCCESS] $*"; }
-log_warn()  { echo "[WARN] $*"; }
-log_err()   { echo "[ERROR] $*" >&2; }
-
-# --- MODE 1: Status Check (Reads directly from <output_dir>) ---
+# --- MODE 1: Status Check (Reads directly without requiring root or exclusive lock) ---
 if [[ "$ACTION" == "--status" ]]; then
     SB_STATE="disabled"
-    if command -v mokutil >/dev/null 2>&1; then
-        if mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled"; then
+    # 1. Check kernel EFI variable directly (works in host, container, and Flatpak)
+    for efivar in /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c \
+                  /run/host/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c \
+                  /sys/firmware/efi/efivars/SecureBoot-* \
+                  /run/host/sys/firmware/efi/efivars/SecureBoot-*; do
+        if [[ -f "$efivar" ]]; then
+            sb_byte=$(od -An -t u1 -j 4 -N 1 "$efivar" 2>/dev/null | tr -d '[:space:]' || true)
+            if [[ "$sb_byte" == "1" ]]; then
+                SB_STATE="enabled"
+                break
+            fi
+        fi
+    done
+
+    # 2. Fallback to mokutil (direct or via flatpak-spawn --host)
+    if [[ "$SB_STATE" != "enabled" ]]; then
+        if command -v mokutil >/dev/null 2>&1 && mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled"; then
+            SB_STATE="enabled"
+        elif command -v flatpak-spawn >/dev/null 2>&1 && flatpak-spawn --host mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled"; then
             SB_STATE="enabled"
         fi
     fi
@@ -72,8 +83,10 @@ if [[ "$ACTION" == "--status" ]]; then
         fi
     fi
 
-    if [[ -n "$CHECK_DER" ]] && command -v mokutil >/dev/null 2>&1; then
-        if mokutil --test-key "$CHECK_DER" 2>&1 | grep -qi "is already enrolled"; then
+    if [[ -n "$CHECK_DER" ]]; then
+        if command -v mokutil >/dev/null 2>&1 && mokutil --test-key "$CHECK_DER" 2>&1 | grep -qi "is already enrolled"; then
+            KEY_ENROLLED="yes"
+        elif command -v flatpak-spawn >/dev/null 2>&1 && flatpak-spawn --host mokutil --test-key "$CHECK_DER" 2>&1 | grep -qi "is already enrolled"; then
             KEY_ENROLLED="yes"
         fi
     fi
@@ -84,6 +97,14 @@ if [[ "$ACTION" == "--status" ]]; then
     echo "CERT_DIR=${OUTPUT_DIR}"
     exit 0
 fi
+
+# Concurrency lockfile protection via flock for privileged mutating operations
+LOCK_FILE="/run/lock/cachy-kernel-updater.lock"
+if [[ ! -d "/run/lock" || ! -w "/run/lock" ]]; then
+    LOCK_FILE="/tmp/cachy-kernel-updater-${REAL_UID}.lock"
+fi
+exec 200>"$LOCK_FILE"
+flock -n 200 || { log_err "Another kernel update or signing operation is already running. Aborting."; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then
     log_err "This operation requires root privileges (pkexec)."

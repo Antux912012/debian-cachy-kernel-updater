@@ -32,6 +32,17 @@
     <binary>cachy-kernel-updater</binary>
   </provides>
   <releases>
+    <release version="1.1.3" date="2026-10-25">
+      <description>
+        <p>Version 1.1.3 release:</p>
+        <ul>
+          <li>Fixed UEFI Secure Boot detection inside Flatpak via direct kernel efivars inspection and host mokutil bridging</li>
+          <li>Added Flatpak-to-host execution bridge (flatpak-spawn --host) so dependency checks, kernel downloads, compilation, installation, MOK signing, and rollbacks work seamlessly in Flatpak</li>
+          <li>Staged sign-kernel.sh and Containerfile in shared ~/.config/cachy-kernel-updater path accessible across Flatpak and host namespaces</li>
+          <li>Switched kernel source and config downloads to streaming requests with progress reporting and batched scripts/config sanitization</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.2" date="2026-10-15">
       <description>
         <p>Version 1.1.2 release:</p>
