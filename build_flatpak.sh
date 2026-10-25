@@ -72,13 +72,11 @@ EOF
     # 4. Install desktop, metainfo, and icons
     install -D -m 644 io.github.Antux912012.debian-cachy-os-kernel-updater.desktop "${FLATPAK_DEST}/share/applications/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop"
     install -D -m 644 io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml "${FLATPAK_DEST}/share/metainfo/io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml"
-    install -D -m 644 io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml "${FLATPAK_DEST}/share/appdata/io.github.Antux912012.debian-cachy-os-kernel-updater.appdata.xml"
     install -D -m 644 assets/io.github.Antux912012.debian-cachy-os-kernel-updater.svg "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.svg"
     install -D -m 644 assets/logo_48.png "${FLATPAK_DEST}/share/icons/hicolor/48x48/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
     install -D -m 644 assets/logo_128.png "${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
     install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
     install -D -m 644 assets/logo_512.png "${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
-    install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/pixmaps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
 
     mkdir -p "${FLATPAK_DEST}/share/app-info/xmls" "${FLATPAK_DEST}/share/app-info/icons/flatpak/128x128" "${FLATPAK_DEST}/share/app-info/icons/flatpak/64x64"
     install -m 644 assets/logo_128.png "${FLATPAK_DEST}/share/app-info/icons/flatpak/128x128/${APP_ID}.png"
@@ -141,9 +139,6 @@ PYEOF
         --socket=wayland \
         --device=dri \
         --filesystem=host \
-        --filesystem=/var/lib/dpkg:ro \
-        --filesystem=/boot:ro \
-        --filesystem=/sys/firmware/efi/efivars:ro \
         --talk-name=org.freedesktop.Flatpak \
         --talk-name=org.freedesktop.Notifications \
         --system-talk-name=org.freedesktop.PolicyKit1

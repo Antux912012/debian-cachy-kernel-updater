@@ -4,7 +4,7 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>CachyOS Kernel Updater</name>
-  <summary>Guided 1-2-3 GUI manager for installing and managing optimized CachyOS kernels on Debian</summary>
+  <summary>Manage CachyOS kernels on Debian</summary>
   <description>
     <p>
       Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and verification of high-performance CachyOS kernels on Debian-based systems.
@@ -27,7 +27,10 @@
   <launchable type="desktop-id">io.github.Antux912012.debian-cachy-os-kernel-updater.desktop</launchable>
   <url type="homepage">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
   <url type="bugtracker">https://github.com/Antux912012/debian-cachy-kernel-updater/issues</url>
-  <developer_name>Antonio</developer_name>
+  <url type="vcs-browser">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
+  <developer id="io.github.Antux912012">
+    <name>Antonio</name>
+  </developer>
   <provides>
     <binary>cachy-kernel-updater</binary>
   </provides>
