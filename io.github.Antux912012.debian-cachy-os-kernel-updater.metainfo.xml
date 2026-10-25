@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.cachyos.debian.kernelupdater</id>
+  <id>io.github.Antux912012.debian-cachy-os-kernel-updater</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>CachyOS Kernel Updater</name>
@@ -24,7 +24,7 @@
     <color type="primary" scheme_preference="light">#1a5fb4</color>
     <color type="primary" scheme_preference="dark">#0d3a78</color>
   </branding>
-  <launchable type="desktop-id">org.cachyos.debian.kernelupdater.desktop</launchable>
+  <launchable type="desktop-id">io.github.Antux912012.debian-cachy-os-kernel-updater.desktop</launchable>
   <url type="homepage">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
   <url type="bugtracker">https://github.com/Antux912012/debian-cachy-kernel-updater/issues</url>
   <developer_name>Antonio</developer_name>
@@ -46,6 +46,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.1.5" date="2026-10-25">
+      <description>
+        <p>Version 1.1.5 release:</p>
+        <ul>
+          <li>Standardized canonical Flatpak and Freedesktop Application ID to io.github.Antux912012.debian-cachy-os-kernel-updater</li>
+          <li>Updated AppStream catalog, desktop entry, and icon branding under the io.github.Antux912012 namespace</li>
+          <li>Rebuilt Debian (.deb) and Flatpak (.flatpak) bundles inside the dedicated Podman container environment</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.4" date="2026-10-25">
       <description>
         <p>Version 1.1.4 release:</p>

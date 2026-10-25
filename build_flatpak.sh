@@ -4,12 +4,12 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
-APP_ID="org.cachyos.debian.kernelupdater"
+APP_ID="io.github.Antux912012.debian-cachy-os-kernel-updater"
 VERSION=$(grep -m1 '^APP_VERSION' main.py | sed -E 's/.*"([^"]+)".*/\1/')
 BUILD_DIR="flatpak_build"
 REPO_DIR="flatpak_repo"
 BUNDLE_DIR="deb_dist"
-BUNDLE_FILE="${BUNDLE_DIR}/cachy-kernel-updater_${VERSION}.flatpak"
+BUNDLE_FILE="${BUNDLE_DIR}/${APP_ID}.flatpak"
 RUNTIME_VER=$(grep -m1 '^runtime-version:' "${APP_ID}.yml" | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/")
 
 mkdir -p "$BUNDLE_DIR"
@@ -26,7 +26,7 @@ echo "=== Building Flatpak for ${APP_ID} (v${VERSION}, runtime: org.gnome.Platfo
 
 rm -rf "${BUILD_DIR}"
 
-if bwrap --ro-bind / / true >/dev/null 2>&1 && flatpak info "org.gnome.Sdk//${RUNTIME_VER}" >/dev/null 2>&1; then
+if false; then
     flatpak-builder --disable-rofiles-fuse --force-clean --repo="${REPO_DIR}" "${BUILD_DIR}" "${APP_ID}.yml"
 else
     echo "[*] Building Flatpak tree via flatpak build-init / build-finish (container-compatible mode)..."
@@ -70,35 +70,41 @@ EOF
     chmod 755 "${FLATPAK_DEST}/bin/cachy-kernel-updater"
 
     # 4. Install desktop, metainfo, and icons
-    install -D -m 644 org.cachyos.debian.kernelupdater.desktop "${FLATPAK_DEST}/share/applications/org.cachyos.debian.kernelupdater.desktop"
-    install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml "${FLATPAK_DEST}/share/metainfo/org.cachyos.debian.kernelupdater.metainfo.xml"
-    install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml "${FLATPAK_DEST}/share/appdata/org.cachyos.debian.kernelupdater.appdata.xml"
-    install -D -m 644 assets/org.cachyos.debian.kernelupdater.svg "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/org.cachyos.debian.kernelupdater.svg"
-    install -D -m 644 assets/logo_48.png "${FLATPAK_DEST}/share/icons/hicolor/48x48/apps/org.cachyos.debian.kernelupdater.png"
-    install -D -m 644 assets/logo_128.png "${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/org.cachyos.debian.kernelupdater.png"
-    install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/org.cachyos.debian.kernelupdater.png"
-    install -D -m 644 assets/logo_512.png "${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/org.cachyos.debian.kernelupdater.png"
-    install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/pixmaps/org.cachyos.debian.kernelupdater.png"
+    install -D -m 644 io.github.Antux912012.debian-cachy-os-kernel-updater.desktop "${FLATPAK_DEST}/share/applications/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop"
+    install -D -m 644 io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml "${FLATPAK_DEST}/share/metainfo/io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml"
+    install -D -m 644 io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml "${FLATPAK_DEST}/share/appdata/io.github.Antux912012.debian-cachy-os-kernel-updater.appdata.xml"
+    install -D -m 644 assets/io.github.Antux912012.debian-cachy-os-kernel-updater.svg "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.svg"
+    install -D -m 644 assets/logo_48.png "${FLATPAK_DEST}/share/icons/hicolor/48x48/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+    install -D -m 644 assets/logo_128.png "${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+    install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+    install -D -m 644 assets/logo_512.png "${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+    install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/pixmaps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
 
-    if command -v appstreamcli >/dev/null 2>&1; then
-        echo "[*] Composing AppStream catalog metadata (with screenshots) for Software Center & Bazaar..."
-        appstreamcli compose \
-            --origin="${APP_ID}" \
-            --prefix=/ \
-            --result-root="${FLATPAK_DEST}" \
-            --data-dir="${FLATPAK_DEST}/share/app-info/xmls" \
-            --icons-dir="${FLATPAK_DEST}/share/app-info/icons/flatpak" \
-            --media-dir="${FLATPAK_DEST}/share/app-info/media" \
-            --media-baseurl="https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots" \
-            "${FLATPAK_DEST}" || true
+    mkdir -p "${FLATPAK_DEST}/share/app-info/xmls" "${FLATPAK_DEST}/share/app-info/icons/flatpak/128x128" "${FLATPAK_DEST}/share/app-info/icons/flatpak/64x64"
+    install -m 644 assets/logo_128.png "${FLATPAK_DEST}/share/app-info/icons/flatpak/128x128/${APP_ID}.png"
+    install -m 644 assets/logo_48.png "${FLATPAK_DEST}/share/app-info/icons/flatpak/64x64/${APP_ID}.png"
+
+    if command -v appstream-compose >/dev/null 2>&1; then
+        echo "[*] Running appstream-compose for Software Center & Bazaar..."
+        appstream-compose --prefix="${FLATPAK_DEST}" --origin="${APP_ID}" --basename="${APP_ID}" "${APP_ID}" || true
     fi
 
-    # Inject full <screenshots> block into the composed AppStream XML so Software Center, KDE Discover, and Bazaar always display them even before or without remote media mirroring
-    python3 - "${FLATPAK_DEST}/share/app-info/xmls/${APP_ID}.xml.gz" "${FLATPAK_DEST}/share/app-info/xmls/flatpak.xml.gz" << 'PYEOF'
-import gzip, sys, os, xml.etree.ElementTree as ET
+    # Ensure composed AppStream XML exists and contains full <screenshots> block for Software Center, KDE Discover, and Bazaar
+    python3 - "${FLATPAK_DEST}/share/app-info/xmls/${APP_ID}.xml.gz" "${FLATPAK_DEST}/share/app-info/xmls/flatpak.xml.gz" "${APP_ID}.metainfo.xml" "${APP_ID}" << 'PYEOF'
+import gzip, sys, os
 
 xml_gz_path = sys.argv[1]
 flatpak_gz_path = sys.argv[2]
+metainfo_path = sys.argv[3]
+app_id = sys.argv[4]
+
+if not os.path.exists(xml_gz_path):
+    with open(metainfo_path, "r", encoding="utf-8") as mf:
+        raw_meta = mf.read()
+    body = raw_meta.split("<component", 1)[1]
+    composed = f'<?xml version="1.0" encoding="UTF-8"?>\n<components version="0.8" origin="{app_id}">\n  <component{body}\n</components>\n'
+    with gzip.open(xml_gz_path, "wt", encoding="utf-8") as f:
+        f.write(composed)
 
 if os.path.exists(xml_gz_path):
     with gzip.open(xml_gz_path, "rt", encoding="utf-8") as f:

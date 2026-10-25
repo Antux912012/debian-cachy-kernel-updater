@@ -52,31 +52,31 @@ EOF
 chmod 755 "${DEB_DIR}/usr/bin/cachy-kernel-updater"
 
 echo "=== Creating Desktop launcher entry ==="
-cat << 'EOF' > "${DEB_DIR}/usr/share/applications/org.cachyos.debian.kernelupdater.desktop"
+cat << 'EOF' > "${DEB_DIR}/usr/share/applications/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop"
 [Desktop Entry]
 Name=CachyOS Kernel Updater
 GenericName=Kernel Updater
 Comment=Check, compile, install, and rollback CachyOS kernels on Debian
 Exec=/usr/bin/cachy-kernel-updater
-Icon=org.cachyos.debian.kernelupdater
+Icon=io.github.Antux912012.debian-cachy-os-kernel-updater
 Terminal=false
 Type=Application
 Categories=System;Settings;GTK;
 StartupNotify=true
 EOF
-chmod 644 "${DEB_DIR}/usr/share/applications/org.cachyos.debian.kernelupdater.desktop"
+chmod 644 "${DEB_DIR}/usr/share/applications/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop"
 
 echo "=== Installing AppStream metainfo ==="
-cp -v org.cachyos.debian.kernelupdater.metainfo.xml "${DEB_DIR}/usr/share/metainfo/"
-chmod 644 "${DEB_DIR}/usr/share/metainfo/org.cachyos.debian.kernelupdater.metainfo.xml"
+cp -v io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml "${DEB_DIR}/usr/share/metainfo/"
+chmod 644 "${DEB_DIR}/usr/share/metainfo/io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml"
 
 echo "=== Installing official CachyOS Debian logo icons ==="
-cp -v assets/org.cachyos.debian.kernelupdater.svg "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/"
-cp -v assets/logo_48.png "${DEB_DIR}/usr/share/icons/hicolor/48x48/apps/org.cachyos.debian.kernelupdater.png"
-cp -v assets/logo_128.png "${DEB_DIR}/usr/share/icons/hicolor/128x128/apps/org.cachyos.debian.kernelupdater.png"
-cp -v assets/logo_256.png "${DEB_DIR}/usr/share/icons/hicolor/256x256/apps/org.cachyos.debian.kernelupdater.png"
-cp -v assets/logo_512.png "${DEB_DIR}/usr/share/icons/hicolor/512x512/apps/org.cachyos.debian.kernelupdater.png"
-cp -v assets/logo_256.png "${DEB_DIR}/usr/share/pixmaps/org.cachyos.debian.kernelupdater.png"
+cp -v assets/io.github.Antux912012.debian-cachy-os-kernel-updater.svg "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/"
+cp -v assets/logo_48.png "${DEB_DIR}/usr/share/icons/hicolor/48x48/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+cp -v assets/logo_128.png "${DEB_DIR}/usr/share/icons/hicolor/128x128/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+cp -v assets/logo_256.png "${DEB_DIR}/usr/share/icons/hicolor/256x256/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+cp -v assets/logo_512.png "${DEB_DIR}/usr/share/icons/hicolor/512x512/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
+cp -v assets/logo_256.png "${DEB_DIR}/usr/share/pixmaps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
 
 chmod 644 "${DEB_DIR}/usr/share/icons/hicolor/scalable/apps/"*.svg
 chmod 644 "${DEB_DIR}/usr/share/icons/hicolor/"*/apps/*.png

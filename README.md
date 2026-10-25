@@ -5,7 +5,7 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.1.4-00A896.svg)
+![Version](https://img.shields.io/badge/version-1.1.5-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 <p align="center">
@@ -116,26 +116,26 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.1.4 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.4):
+Download the pre-compiled `.deb` package from the [v1.1.5 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.5):
 
-* 📦 **[cachy-kernel-updater_1.1.4_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.4/cachy-kernel-updater_1.1.4_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.5_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.5/cachy-kernel-updater_1.1.5_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.1.4_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.1.5_all.deb
 ```
 
 ---
 
 ### Method 3: Standalone Flatpak Bundle
 
-Download and install the standalone `.flatpak` bundle:
+Download and install the standalone `.flatpak` bundle (`io.github.Antux912012.debian-cachy-os-kernel-updater`):
 ```bash
-flatpak install --user cachy-kernel-updater_1.1.4.flatpak
+flatpak install --user io.github.Antux912012.debian-cachy-os-kernel-updater.flatpak
 ```
 Or run directly:
 ```bash
-flatpak run org.cachyos.debian.kernelupdater
+flatpak run io.github.Antux912012.debian-cachy-os-kernel-updater
 ```
 
 ---
@@ -225,13 +225,13 @@ sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-Cachy
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.4_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.5_all.deb`.
 
 ### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
 ./build_flatpak.sh
 ```
-This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.4.flatpak`.
+This compiles the application in an isolated Flatpak environment and produces `deb_dist/io.github.Antux912012.debian-cachy-os-kernel-updater.flatpak`.
 
 ---
 
@@ -248,7 +248,7 @@ This compiles the application in an isolated Flatpak environment and produces `d
 │   ├── logo_256.png                             # 256x256 icon
 │   ├── logo_512.png                             # 512x512 icon
 │   ├── logo_master.png                          # High-resolution master icon
-│   └── org.cachyos.debian.kernelupdater.svg     # Scalable SVG application emblem
+│   └── io.github.Antux912012.debian-cachy-os-kernel-updater.svg     # Scalable SVG application emblem
 ├── flatpak/
 │   └── wheels/                                  # Offline Python wheels for Flatpak
 ├── main.py                                      # GTK4 / Libadwaita User Interface
@@ -256,9 +256,9 @@ This compiles the application in an isolated Flatpak environment and produces `d
 ├── sign-kernel.sh                               # Atomic UEFI Secure Boot MOK signing & enrollment tool
 ├── build_deb.sh                                 # Debian package (.deb) generator script
 ├── build_flatpak.sh                             # Flatpak bundle (.flatpak) packaging script
-├── org.cachyos.debian.kernelupdater.yml         # Flatpak application manifest
-├── org.cachyos.debian.kernelupdater.desktop     # Desktop application launcher
-├── org.cachyos.debian.kernelupdater.metainfo.xml# AppStream metadata specification
+├── io.github.Antux912012.debian-cachy-os-kernel-updater.yml         # Flatpak application manifest
+├── io.github.Antux912012.debian-cachy-os-kernel-updater.desktop     # Desktop application launcher
+├── io.github.Antux912012.debian-cachy-os-kernel-updater.metainfo.xml# AppStream metadata specification
 ├── Containerfile                                # Containerized isolated compiler definition
 ├── requirements.txt                             # Python requirements
 ├── LICENSE                                      # GNU General Public License v3.0 (GPLv3)
@@ -283,6 +283,10 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 ---
 
 ## 📜 Changelog
+
+### v1.1.5
+- **Standardized Flatpak & Freedesktop Application ID (`io.github.Antux912012.debian-cachy-os-kernel-updater`)**: Migrated application ID, AppStream catalog metadata, desktop launcher, and icon assets to the canonical `io.github.Antux912012.debian-cachy-os-kernel-updater` reverse-DNS namespace.
+- **Containerized Podman Packaging**: Rebuilt `cachy-kernel-updater_1.1.5_all.deb` and `io.github.Antux912012.debian-cachy-os-kernel-updater.flatpak` inside the dedicated Podman development environment.
 
 ### v1.1.4
 - **Official Application Screenshots & AppStream Catalog Metadata**: Added 3 high-resolution UI screenshots (`screenshot-1-main.png`, `screenshot-2-tuning.png`, `screenshot-3-compiling.png`) to the GitHub documentation and embedded AppStream `<screenshots>` metadata + composed `app-info` catalog inside the Flatpak bundle and `.deb` package for GNOME Software Center, KDE Discover, and Bazaar.

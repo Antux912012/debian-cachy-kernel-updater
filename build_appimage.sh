@@ -16,27 +16,27 @@ cp -v main.py kernel_manager.py sign-kernel.sh AppDir/usr/share/cachy-kernel-upd
 chmod 755 AppDir/usr/share/cachy-kernel-updater/sign-kernel.sh
 
 # Copy official icons into AppDir
-cp -v assets/org.cachyos.debian.kernelupdater.svg AppDir/usr/share/icons/hicolor/scalable/apps/
-cp -v assets/logo_256.png AppDir/usr/share/icons/hicolor/256x256/apps/org.cachyos.debian.kernelupdater.png
-cp -v assets/logo_512.png AppDir/usr/share/icons/hicolor/512x512/apps/org.cachyos.debian.kernelupdater.png
-cp -v assets/logo_256.png AppDir/usr/share/pixmaps/org.cachyos.debian.kernelupdater.png
-cp -v assets/logo_256.png AppDir/org.cachyos.debian.kernelupdater.png
-cp -v assets/org.cachyos.debian.kernelupdater.svg AppDir/org.cachyos.debian.kernelupdater.svg
+cp -v assets/io.github.Antux912012.debian-cachy-os-kernel-updater.svg AppDir/usr/share/icons/hicolor/scalable/apps/
+cp -v assets/logo_256.png AppDir/usr/share/icons/hicolor/256x256/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png
+cp -v assets/logo_512.png AppDir/usr/share/icons/hicolor/512x512/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png
+cp -v assets/logo_256.png AppDir/usr/share/pixmaps/io.github.Antux912012.debian-cachy-os-kernel-updater.png
+cp -v assets/logo_256.png AppDir/io.github.Antux912012.debian-cachy-os-kernel-updater.png
+cp -v assets/io.github.Antux912012.debian-cachy-os-kernel-updater.svg AppDir/io.github.Antux912012.debian-cachy-os-kernel-updater.svg
 
 # Create desktop file in AppDir
-cat << 'EOF' > AppDir/usr/share/applications/org.cachyos.debian.kernelupdater.desktop
+cat << 'EOF' > AppDir/usr/share/applications/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop
 [Desktop Entry]
 Name=CachyOS Kernel Updater
 GenericName=Kernel Updater
 Comment=Check, compile, install, and rollback CachyOS kernels on Debian
 Exec=usr/bin/python3 usr/share/cachy-kernel-updater/main.py
-Icon=org.cachyos.debian.kernelupdater
+Icon=io.github.Antux912012.debian-cachy-os-kernel-updater
 Terminal=false
 Type=Application
 Categories=System;Settings;GTK;
 StartupNotify=true
 EOF
-cp -v AppDir/usr/share/applications/org.cachyos.debian.kernelupdater.desktop AppDir/org.cachyos.debian.kernelupdater.desktop
+cp -v AppDir/usr/share/applications/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop AppDir/io.github.Antux912012.debian-cachy-os-kernel-updater.desktop
 
 # Ensure fake apt-key exists to bypass deprecated Debian 12 check in appimage-builder
 if [ ! -f "apt-key" ]; then

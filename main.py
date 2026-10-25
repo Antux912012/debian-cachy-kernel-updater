@@ -11,7 +11,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Gio
 
 from kernel_manager import KernelManager
 
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):
@@ -56,7 +56,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         self.header.set_show_start_title_buttons(True)
         self.header.set_show_end_title_buttons(True)
 
-        self.set_icon_name("org.cachyos.debian.kernelupdater")
+        self.set_icon_name("io.github.Antux912012.debian-cachy-os-kernel-updater")
         self.window_title = Adw.WindowTitle(
             title="Debian CachyOS Kernel Updater",
             subtitle=f"v{APP_VERSION} — Installer, Updater & Secure Boot Manager"
@@ -111,14 +111,14 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         # Application Logo Image in Banner
         logo_png_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo_128.png")
         if not os.path.exists(logo_png_path):
-            logo_png_path = "/usr/share/pixmaps/org.cachyos.debian.kernelupdater.png"
+            logo_png_path = "/usr/share/pixmaps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
         if not os.path.exists(logo_png_path):
-            logo_png_path = "/app/share/pixmaps/org.cachyos.debian.kernelupdater.png"
+            logo_png_path = "/app/share/pixmaps/io.github.Antux912012.debian-cachy-os-kernel-updater.png"
 
         if os.path.exists(logo_png_path):
             self.banner_logo = Gtk.Image.new_from_file(logo_png_path)
         else:
-            self.banner_logo = Gtk.Image.new_from_icon_name("org.cachyos.debian.kernelupdater")
+            self.banner_logo = Gtk.Image.new_from_icon_name("io.github.Antux912012.debian-cachy-os-kernel-updater")
         self.banner_logo.set_pixel_size(56)
         self.banner_logo.set_valign(Gtk.Align.CENTER)
         banner_row.append(self.banner_logo)
@@ -591,7 +591,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         if hasattr(Adw, "AboutDialog"):
             about = Adw.AboutDialog()
             about.set_application_name("Debian CachyOS Kernel Updater")
-            about.set_application_icon("org.cachyos.debian.kernelupdater")
+            about.set_application_icon("io.github.Antux912012.debian-cachy-os-kernel-updater")
             about.set_version(APP_VERSION)
             about.set_developer_name("Antonio")
             about.set_comments("Modern GTK4/Adwaita tool to compile, install, optimize, and sign CachyOS kernels on Debian systems.")
@@ -601,7 +601,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         elif hasattr(Adw, "AboutWindow"):
             about = Adw.AboutWindow(transient_for=self)
             about.set_application_name("Debian CachyOS Kernel Updater")
-            about.set_application_icon("org.cachyos.debian.kernelupdater")
+            about.set_application_icon("io.github.Antux912012.debian-cachy-os-kernel-updater")
             about.set_version(APP_VERSION)
             about.set_developer_name("Antonio")
             about.set_comments("Modern GTK4/Adwaita tool to compile, install, optimize, and sign CachyOS kernels on Debian systems.")
@@ -1724,7 +1724,7 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
 
 class KernelUpdaterApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id='org.cachyos.debian.kernelupdater')
+        super().__init__(application_id='io.github.Antux912012.debian-cachy-os-kernel-updater')
 
     def do_activate(self):
         win = self.props.active_window

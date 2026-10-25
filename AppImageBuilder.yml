@@ -5,9 +5,9 @@ AppDir:
   app_info:
     exec: usr/bin/python3
     exec_args: "$APPDIR/usr/share/cachy-kernel-updater/main.py $@"
-    id: org.cachyos.debian.kernelupdater
+    id: io.github.Antux912012.debian-cachy-os-kernel-updater
     name: Cachy-Kernel-Updater
-    icon: org.cachyos.debian.kernelupdater
+    icon: io.github.Antux912012.debian-cachy-os-kernel-updater
     version: 1.1.4
 
   apt:
