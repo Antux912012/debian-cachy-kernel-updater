@@ -14,7 +14,7 @@ Before submitting to `github.com/flathub/flathub`, `flatpak-builder-lint` enforc
 | File / Area | Current State (Violations) | Required Flathub Fix |
 | :--- | :--- | :--- |
 | **Manifest (`*.yml`)** | 1. Uses `app-id:` (legacy) instead of `id:`.<br>2. Uses `sources: type: dir` and local `flatpak/wheels/*.whl` (Flathub bots block network during build and reject local repo dirs).<br>3. Redundant `--filesystem=/var/lib/dpkg:ro`, `/boot:ro`, `/sys/firmware/efi/efivars:ro` alongside `--filesystem=host`.<br>4. Installs legacy `${FLATPAK_DEST}/share/appdata/*.appdata.xml` and `/app/share/pixmaps`. | 1. Use `id: io.github.Antux912012.debian-cachy-os-kernel-updater`.<br>2. Replace `type: dir` with `type: git` (`tag: v1.1.5`, `commit: <sha>`) + PyPI `type: file` URLs with `sha256` hashes for `requests`, `urllib3`, `idna`, `certifi`, `charset_normalizer`.<br>3. Keep only minimal `finish-args` (`--filesystem=host`, `--talk-name=org.freedesktop.Flatpak`, `--talk-name=org.freedesktop.Notifications`).<br>4. Remove `/app/share/appdata` and `/app/share/pixmaps` installs. |
-| **MetaInfo (`*.metainfo.xml`)** | 1. Uses deprecated `<developer_name>Antonio</developer_name>` without `<developer id="...">`.<br>2. `<summary>` is 82 chars (Flathub linter limit: ≤ 35–50 chars, no trailing period).<br>3. Missing `<url type="vcs-browser">`. | 1. Add `<developer id="io.github.Antux912012"><name>Antonio</name></developer>`.<br>2. Shorten `<summary>` to: `Manage CachyOS kernels on Debian`.<br>3. Add `<url type="vcs-browser">https://github.com/Antux912012/debian-cachy-kernel-updater</url>`. |
+| **MetaInfo (`*.metainfo.xml`)** | 1. Uses deprecated `<developer_name>Antonio</developer_name>` without `<developer id="...">`.<br>2. `<summary>` is 82 chars (Flathub linter limit: ≤ 35–50 chars, no trailing period).<br>3. Missing `<url type="vcs-browser">`. | 1. Add `<developer id="io.github.Antux912012"><name>Antonio</name></developer>`.<br>2. Shorten `<summary>` to: `Manage CachyOS kernels on Debian`.<br>3. Add `<url type="vcs-browser">https://github.com/Antux912012/debian-cachy-os-kernel-updater</url>`. |
 | **Desktop (`*.desktop`)** | Valid, icons and `Exec=cachy-kernel-updater` match. | Keep aligned; validate via `desktop-file-validate`. |
 | **Version Sync** | `main.py` has `1.1.5`, `kernel_manager.py` has `1.1.3`. | Sync `APP_VERSION = "1.1.5"` across both files. |
 | **Sandbox Exceptions** | Uses `--filesystem=host` & `--talk-name=org.freedesktop.Flatpak` (`flatpak-spawn --host`). | Document rationale in Flathub PR description (host kernel compilation, `dpkg -i`, `mokutil`, and EFI signing require host bridge). |
@@ -44,7 +44,7 @@ Before submitting to `github.com/flathub/flathub`, `flatpak-builder-lint` enforc
        <name>Antonio</name>
      </developer>
      ```
-   - Add `<url type="vcs-browser">https://github.com/Antux912012/debian-cachy-kernel-updater</url>` under `<url type="bugtracker">`.
+   - Add `<url type="vcs-browser">https://github.com/Antux912012/debian-cachy-os-kernel-updater</url>` under `<url type="bugtracker">`.
 
 ## STEP 2: Generate PyPI Wheel Hashes & Flathub Manifest
 1. Compute `sha256sum` of `flatpak/wheels/*.whl` and fetch exact `https://files.pythonhosted.org/packages/...` URLs (or inspect wheel metadata/PyPI JSON API) for `certifi`, `charset_normalizer`, `idna`, `requests`, `urllib3`.
@@ -67,7 +67,7 @@ Before submitting to `github.com/flathub/flathub`, `flatpak-builder-lint` enforc
    - Remove legacy `/share/appdata/` and `/share/pixmaps/` install lines from both `.yml` and `build_flatpak.sh`.
 3. Create directory `flathub_submission/` containing a standalone Flathub-ready `io.github.Antux912012.debian-cachy-os-kernel-updater.yml` where:
    - `python3-dependencies` uses `type: file` with `url` + `sha256` from `files.pythonhosted.org`.
-   - `cachy-kernel-updater` uses `type: git`, `url: https://github.com/Antux912012/debian-cachy-kernel-updater.git`, `tag: v1.1.5`, `commit: <HEAD_COMMIT_SHA>`.
+   - `cachy-kernel-updater` uses `type: git`, `url: https://github.com/Antux912012/debian-cachy-os-kernel-updater.git`, `tag: v1.1.5`, `commit: <HEAD_COMMIT_SHA>`.
    - Create `flathub_submission/flathub.json` with `{"only-arches": ["x86_64"]}` (since CachyOS kernels target `x86_64` microarchitectures).
 
 ## STEP 3: Containerized Validation & Rebuild
@@ -115,14 +115,14 @@ Once Gemini 3.8 Flash completes the repository preparation and updates tag `v1.1
    ```markdown
    ### Please confirm your submission meets all the criteria
 
-   - [X] Please describe the application briefly. Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
-   - [X] Please attach a video showcasing the application on Linux using the Flatpak. https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png
+   - [X] Please describe the application briefly. Kernel Updater for CachyOS on Debian is an independent GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
+   - [X] Please attach a video showcasing the application on Linux using the Flatpak. https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/download/v1.1.5/DCKU_Flathub_sub_vid.mp4
    - [X] The Flatpak ID follows all the rules listed in the [Application ID requirements][appid].
    - [X] I have read and followed all the [Submission requirements][reqs] and the [Submission guide][reqs2] and I agree to them.
      - [X] The application has a meaningful development history, evidence of real-world use, and a clear commitment to ongoing maintenance, as required by the [development history requirements][history].
      - [X] I have disclosed any AI-generated material included in the application or its Flathub packaging, as required by the [Generative AI policy][ai]. **Affected parts and approximate extent:** None
      - [X] I have not used AI tools or agents to generate or automate this submission pull request or its review interactions.
-   - [X] I am an author/developer/upstream contributor to the project. **Link:** https://github.com/Antux912012/debian-cachy-kernel-updater
+   - [X] I am an author/developer/upstream contributor to the project. **Link:** https://github.com/Antux912012/debian-cachy-os-kernel-updater
 
    ### Sandbox Permissions Note
    - `--talk-name=org.freedesktop.Flatpak` & `--filesystem=host`: Required because this utility compiles Linux kernels (via host Podman/toolchain), inspects `/boot`, `/var/lib/dpkg`, and `/sys/firmware/efi/efivars`, signs kernel modules with MOK keys (`mokutil` / `sbsigntool`), and installs `.deb` kernel packages on the host via `pkexec dpkg -i`.

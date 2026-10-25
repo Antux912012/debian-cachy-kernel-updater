@@ -154,8 +154,8 @@ fi
 
 # 6. Push Upstream & Optionally Push Flathub PR Branch
 echo "[6/6] Pushing upstream main and tag ${TAG} to GitHub..."
-git push "${AUTH_PREFIX}/${GITHUB_USER}/debian-cachy-kernel-updater.git" main
-git push -f "${AUTH_PREFIX}/${GITHUB_USER}/debian-cachy-kernel-updater.git" "$TAG"
+git push "${AUTH_PREFIX}/${GITHUB_USER}/debian-cachy-os-kernel-updater.git" main
+git push -f "${AUTH_PREFIX}/${GITHUB_USER}/debian-cachy-os-kernel-updater.git" "$TAG"
 
 if [ "$MODE" = "first" ]; then
     if [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -167,6 +167,15 @@ if [ "$MODE" = "first" ]; then
             -d '{"default_branch_only":false}' >/dev/null || true
         sleep 3
     fi
+
+    # Pre-flight check: Verify https://github.com/${GITHUB_USER}/${REPO_SLUG} returns HTTP 200 for flatpak-builder-lint 'appid-url-not-reachable'
+    REPO_SLUG="${APP_ID##*.}"
+    HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" "https://github.com/${GITHUB_USER}/${REPO_SLUG}")
+    if [ "$HTTP_CODE" != "200" ]; then
+        echo "ERROR: https://github.com/${GITHUB_USER}/${REPO_SLUG} returned HTTP ${HTTP_CODE}! flatpak-builder-lint will fail with appid-url-not-reachable."
+        exit 1
+    fi
+    echo "  -> Verified https://github.com/${GITHUB_USER}/${REPO_SLUG} is reachable (HTTP 200)."
 
     WORK_DIR="$(mktemp -d /tmp/flathub-first.XXXXXX)"
     trap 'rm -rf "$WORK_DIR"' EXIT
@@ -187,14 +196,14 @@ if [ "$MODE" = "first" ]; then
         PR_BODY=$(cat <<'EOF'
 ### Please confirm your submission meets all the criteria
 
-- [X] Please describe the application briefly. Debian CachyOS Kernel Updater is a native GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
-- [X] Please attach a video showcasing the application on Linux using the Flatpak. https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png
+- [X] Please describe the application briefly. Kernel Updater for CachyOS on Debian is an independent GTK4 and Libadwaita utility that automates the discovery, compilation, installation, and UEFI MOK Secure Boot signing of CachyOS kernels on Debian-based systems.
+- [X] Please attach a video showcasing the application on Linux using the Flatpak. https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/download/v1.1.5/DCKU_Flathub_sub_vid.mp4
 - [X] The Flatpak ID follows all the rules listed in the [Application ID requirements][appid].
 - [X] I have read and followed all the [Submission requirements][reqs] and the [Submission guide][reqs2] and I agree to them.
   - [X] The application has a meaningful development history, evidence of real-world use, and a clear commitment to ongoing maintenance, as required by the [development history requirements][history].
   - [X] I have disclosed any AI-generated material included in the application or its Flathub packaging, as required by the [Generative AI policy][ai]. **Affected parts and approximate extent:** None
   - [X] I have not used AI tools or agents to generate or automate this submission pull request or its review interactions.
-- [X] I am an author/developer/upstream contributor to the project. **Link:** https://github.com/Antux912012/debian-cachy-kernel-updater
+- [X] I am an author/developer/upstream contributor to the project. **Link:** https://github.com/Antux912012/debian-cachy-os-kernel-updater
 
 ### Sandbox Permissions Note
 - `--talk-name=org.freedesktop.Flatpak` & `--filesystem=host`: Required because this utility compiles Linux kernels (via host Podman/toolchain), inspects `/boot`, `/var/lib/dpkg`, and `/sys/firmware/efi/efivars`, signs kernel modules with MOK keys (`mokutil` / `sbsigntool`), and installs `.deb` kernel packages on the host via `pkexec dpkg -i`.

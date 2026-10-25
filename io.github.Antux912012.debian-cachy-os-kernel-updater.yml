@@ -1,6 +1,6 @@
 id: io.github.Antux912012.debian-cachy-os-kernel-updater
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: cachy-kernel-updater
 

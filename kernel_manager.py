@@ -81,7 +81,61 @@ class KernelManager:
 
         self.output_base_dir = os.path.expanduser("~/kernel-build-deb")
         self.last_output_dir = None
-        self.container_image_tag = "cachyos-kernel-builder:debian"
+        self.host_distro = self.detect_host_distro()
+        self.os_tag = "ubuntu" if self.host_distro.get("id") == "ubuntu" else "debian"
+        self.container_image_tag = f"cachyos-kernel-builder:{self.os_tag}"
+
+    def detect_host_distro(self) -> dict:
+        """
+        Detects the host OS distribution (Debian vs Ubuntu vs derivative) by inspecting
+        /run/host/etc/os-release (when inside Flatpak) or /etc/os-release.
+        Returns a dict with 'id', 'id_like', 'name', 'version_id', 'codename', 'is_ubuntu', 'is_debian_family'.
+        """
+        data = {
+            "id": "debian",
+            "id_like": "debian",
+            "name": "Debian GNU/Linux",
+            "version_id": "",
+            "codename": "bookworm",
+            "is_ubuntu": False,
+            "is_debian_family": True,
+        }
+        os_release_paths = (
+            "/run/host/etc/os-release",
+            "/run/host/usr/lib/os-release",
+            "/etc/os-release",
+            "/usr/lib/os-release",
+        )
+        raw = {}
+        for p in os_release_paths:
+            if os.path.isfile(p):
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.strip()
+                            if "=" in line and not line.startswith("#"):
+                                k, v = line.split("=", 1)
+                                raw[k.strip()] = v.strip().strip('"').strip("'")
+                    if raw.get("ID"):
+                        break
+                except Exception:
+                    pass
+
+        if raw:
+            distro_id = raw.get("ID", "debian").lower()
+            id_like = raw.get("ID_LIKE", "").lower()
+            data["id"] = distro_id
+            data["id_like"] = id_like
+            data["name"] = raw.get("PRETTY_NAME", raw.get("NAME", distro_id.capitalize()))
+            data["version_id"] = raw.get("VERSION_ID", "")
+            data["codename"] = raw.get("VERSION_CODENAME", raw.get("UBUNTU_CODENAME", ""))
+            data["is_ubuntu"] = (distro_id in ("ubuntu", "linuxmint", "pop", "neon", "elementary", "zorin") or "ubuntu" in id_like)
+            data["is_debian_family"] = (
+                data["is_ubuntu"]
+                or distro_id in ("debian", "kali", "parrot", "raspbian", "lmde", "mx")
+                or "debian" in id_like
+            )
+        return data
 
     def is_flatpak(self) -> bool:
         """Returns True when running inside a Flatpak sandbox."""
@@ -610,9 +664,10 @@ class KernelManager:
             return False
 
     def get_output_kernel_dir(self, is_native=False, version=None):
-        """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-]debian."""
+        """Returns the full path to the output kernel deb folder: ~/kernel-build-deb/Linux-kernel-CachyOS-(version)-[native-](debian|ubuntu)."""
         ver = version or self.latest_version or "latest"
-        tag = "native-debian" if is_native else "debian"
+        os_suffix = getattr(self, "os_tag", "debian")
+        tag = f"native-{os_suffix}" if is_native else os_suffix
         folder_name = f"Linux-kernel-CachyOS-{ver}-{tag}"
         return os.path.join(self.output_base_dir, folder_name)
 
@@ -651,7 +706,7 @@ class KernelManager:
             return False
 
     def ensure_container_image(self, progress_callback=None, force=False):
-        """Ensures the Debian Bookworm builder image is built and ready."""
+        """Ensures the Debian/Ubuntu builder image matching the host OS is built and ready."""
         engine = self.get_container_engine()
         if not engine:
             raise Exception("Neither podman nor docker was found. Please install podman or docker.")
@@ -661,24 +716,28 @@ class KernelManager:
                 progress_callback(f"[✓] Container image verified: {self.container_image_tag} ({engine})")
             return True
 
+        is_ubuntu = bool(self.host_distro.get("is_ubuntu"))
+        base_img = "docker.io/library/ubuntu:24.04" if is_ubuntu else "docker.io/library/debian:bookworm-slim"
+        base_label = "Ubuntu 24.04 LTS (Noble)" if is_ubuntu else "Debian Bookworm"
+
         if progress_callback:
             progress_callback(f"\n[*] Preparing {self.container_image_tag} using {engine}...")
-            progress_callback("Base: Debian Bookworm (ensures maximum generic compatibility and zero host dependencies)")
+            progress_callback(f"Base: {base_label} (detected host OS: {self.host_distro.get('name', 'Debian/Ubuntu')})")
 
         self._stage_host_helper_files()
         staged_cf = os.path.join(self.config_dir, "Containerfile")
         base_dir = os.path.dirname(os.path.abspath(__file__))
         local_cf = os.path.join(base_dir, "Containerfile")
 
-        if os.path.isfile(staged_cf):
+        if not is_ubuntu and os.path.isfile(staged_cf):
             containerfile_path = staged_cf
-        elif not self.is_flatpak() and os.path.isfile(local_cf):
+        elif not is_ubuntu and not self.is_flatpak() and os.path.isfile(local_cf):
             containerfile_path = local_cf
         else:
-            containerfile_path = os.path.join(self.download_dir, "Containerfile")
+            containerfile_path = os.path.join(self.download_dir, f"Containerfile.{self.os_tag}")
             os.makedirs(self.download_dir, exist_ok=True)
             with open(containerfile_path, "w") as cf:
-                cf.write("""FROM docker.io/library/debian:bookworm-slim
+                cf.write(f"""FROM {base_img}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -724,7 +783,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     initramfs-tools \\
     && rm -rf /var/lib/apt/lists/*
 
-ENV DEBFULLNAME="CachyOS Debian Builder"
+ENV DEBFULLNAME="CachyOS Kernel Builder"
 ENV DEBEMAIL="builder@localhost"
 
 WORKDIR /workspace
@@ -1455,36 +1514,37 @@ WORKDIR /workspace
         self._run_cmd(batched_safety_cmd, cwd=kernel_dir, progress_callback=None, host_exec=False)
 
         # 6. CPU Microarchitecture Optimization
+        os_suffix = getattr(self, "os_tag", "debian")
         if cpu_arch == 'native':
             arch_cmd = ['bash', 'scripts/config', '--disable', 'CONFIG_MGENERIC_CPU', '--enable', 'CONFIG_X86_NATIVE_CPU']
             if 'intel' in hw['vendor'].lower():
                 arch_cmd.extend(['--enable', 'CONFIG_X86_INTEL_PSTATE', '--enable', 'CONFIG_INTEL_IDLE', '--enable', 'CONFIG_MNATIVE_INTEL'])
             elif 'amd' in hw['vendor'].lower():
                 arch_cmd.extend(['--enable', 'CONFIG_X86_AMD_PSTATE', '--enable', 'CONFIG_MNATIVE_AMD'])
-            arch_cmd.extend(['--set-str', 'CONFIG_LOCALVERSION', '-cachyos-native-debian'])
+            arch_cmd.extend(['--set-str', 'CONFIG_LOCALVERSION', f'-cachyos-native-{os_suffix}'])
             self._run_cmd(arch_cmd, cwd=kernel_dir, progress_callback=None, host_exec=False)
             if progress_callback:
-                progress_callback("[✓] CPU Architecture: Native (-march=native enabled, localversion=-cachyos-native-debian)")
+                progress_callback(f"[✓] CPU Architecture: Native (-march=native enabled, localversion=-cachyos-native-{os_suffix})")
         elif cpu_arch == 'x86-64-v3':
             self._run_cmd([
                 'bash', 'scripts/config',
                 '--enable', 'CONFIG_GENERIC_CPU',
                 '--disable', 'CONFIG_X86_NATIVE_CPU',
                 '--set-val', 'CONFIG_X86_64_VERSION', '3',
-                '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-v3-debian'
+                '--set-str', 'CONFIG_LOCALVERSION', f'-cachyos-v3-{os_suffix}'
             ], cwd=kernel_dir, progress_callback=None, host_exec=False)
             if progress_callback:
-                progress_callback("[✓] CPU Architecture: Generic x86-64-v3 (AVX2, localversion=-cachyos-v3-debian)")
+                progress_callback(f"[✓] CPU Architecture: Generic x86-64-v3 (AVX2, localversion=-cachyos-v3-{os_suffix})")
         else: # generic (x86-64-v2 safe default)
             self._run_cmd([
                 'bash', 'scripts/config',
                 '--enable', 'CONFIG_GENERIC_CPU',
                 '--disable', 'CONFIG_X86_NATIVE_CPU',
                 '--set-val', 'CONFIG_X86_64_VERSION', '2',
-                '--set-str', 'CONFIG_LOCALVERSION', '-cachyos-debian'
+                '--set-str', 'CONFIG_LOCALVERSION', f'-cachyos-{os_suffix}'
             ], cwd=kernel_dir, progress_callback=None, host_exec=False)
             if progress_callback:
-                progress_callback("[✓] CPU Architecture: Generic x86-64 / x86-64-v2 (Safe for all modern CPUs)")
+                progress_callback(f"[✓] CPU Architecture: Generic x86-64 / x86-64-v2 (localversion=-cachyos-{os_suffix})")
 
         # 7. Update configuration for the new kernel version non-interactively
         toolchain_flags = ['LLVM=1', 'LLVM_IAS=1'] if use_llvm else []

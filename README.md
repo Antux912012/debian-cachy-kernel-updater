@@ -104,10 +104,10 @@ Installing via our official APT repository enables automatic updates alongside y
 ```bash
 # 1. Download and install the repository GPG signing key
 sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://antux912012.github.io/debian-cachy-kernel-updater/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/cachy-kernel-updater.gpg
+curl -fsSL https://antux912012.github.io/debian-cachy-os-kernel-updater/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/cachy-kernel-updater.gpg
 
 # 2. Add the repository to your APT sources
-echo "deb [signed-by=/etc/apt/keyrings/cachy-kernel-updater.gpg] https://antux912012.github.io/debian-cachy-kernel-updater stable main" | sudo tee /etc/apt/sources.list.d/cachy-kernel-updater.list
+echo "deb [signed-by=/etc/apt/keyrings/cachy-kernel-updater.gpg] https://antux912012.github.io/debian-cachy-os-kernel-updater stable main" | sudo tee /etc/apt/sources.list.d/cachy-kernel-updater.list
 
 # 3. Update package index and install
 sudo apt update
@@ -115,15 +115,15 @@ sudo apt install cachy-kernel-updater
 ```
 
 > [!TIP]
-> Compatible with **Debian 12 (Bookworm)**, **Debian 13 (Trixie)**, **Debian Sid (Unstable)**, and Debian-based distributions. You can also visit the [APT Repository Web Page](https://antux912012.github.io/debian-cachy-kernel-updater/).
+> Compatible with **Debian 12 (Bookworm)**, **Debian 13 (Trixie)**, **Debian Sid (Unstable)**, and Debian-based distributions. You can also visit the [APT Repository Web Page](https://antux912012.github.io/debian-cachy-os-kernel-updater/).
 
 ---
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.1.5 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.5):
+Download the pre-compiled `.deb` package from the [v1.1.5 Release Page](https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/tag/v1.1.5):
 
-* 📦 **[cachy-kernel-updater_1.1.5_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.5/cachy-kernel-updater_1.1.5_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.5_all.deb](https://github.com/Antux912012/debian-cachy-os-kernel-updater/releases/download/v1.1.5/cachy-kernel-updater_1.1.5_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash

@@ -1,6 +1,6 @@
 id: io.github.Antux912012.debian-cachy-os-kernel-updater
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: cachy-kernel-updater
 
@@ -76,6 +76,6 @@ modules:
       - install -D -m 644 assets/logo_512.png ${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/io.github.Antux912012.debian-cachy-os-kernel-updater.png
     sources:
       - type: git
-        url: https://github.com/Antux912012/debian-cachy-kernel-updater.git
+        url: https://github.com/Antux912012/debian-cachy-os-kernel-updater.git
         tag: v1.1.5
-        commit: 4537997968abd95e69b9088b43c3292b3d2e9878
+        commit: b20ac6ff23dfdca1b2c4d0acb093aec58dcd08c8

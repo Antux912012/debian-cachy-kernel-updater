@@ -111,15 +111,15 @@ if os.path.exists(xml_gz_path):
         screenshots_xml = """    <screenshots>
       <screenshot type="default">
         <caption>Main Dashboard — Kernel Selection, Isolated Container Build &amp; UEFI Secure Boot Status</caption>
-        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png</image>
+        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-os-kernel-updater/main/assets/screenshots/screenshot-1-main.png</image>
       </screenshot>
       <screenshot>
         <caption>Advanced Kernel &amp; CPU Tuning — Fine-Grained Compiler, LTO, BORE Scheduler &amp; Tick Rate</caption>
-        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-2-tuning.png</image>
+        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-os-kernel-updater/main/assets/screenshots/screenshot-2-tuning.png</image>
       </screenshot>
       <screenshot>
         <caption>Live Kernel Compilation Progress &amp; Adaptive Build Log Terminal</caption>
-        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-3-compiling.png</image>
+        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-os-kernel-updater/main/assets/screenshots/screenshot-3-compiling.png</image>
       </screenshot>
     </screenshots>
 """

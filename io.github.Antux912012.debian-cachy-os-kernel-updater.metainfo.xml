@@ -25,9 +25,9 @@
     <color type="primary" scheme_preference="dark">#0d3a78</color>
   </branding>
   <launchable type="desktop-id">io.github.Antux912012.debian-cachy-os-kernel-updater.desktop</launchable>
-  <url type="homepage">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
-  <url type="bugtracker">https://github.com/Antux912012/debian-cachy-kernel-updater/issues</url>
-  <url type="vcs-browser">https://github.com/Antux912012/debian-cachy-kernel-updater</url>
+  <url type="homepage">https://github.com/Antux912012/debian-cachy-os-kernel-updater</url>
+  <url type="bugtracker">https://github.com/Antux912012/debian-cachy-os-kernel-updater/issues</url>
+  <url type="vcs-browser">https://github.com/Antux912012/debian-cachy-os-kernel-updater</url>
   <developer id="io.github.Antux912012">
     <name>Antonio</name>
   </developer>
@@ -37,15 +37,15 @@
   <screenshots>
     <screenshot type="default">
       <caption>Main Dashboard — Kernel Selection, Isolated Container Build &amp; UEFI Secure Boot Status</caption>
-      <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png</image>
+      <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-os-kernel-updater/main/assets/screenshots/screenshot-1-main.png</image>
     </screenshot>
     <screenshot>
       <caption>Advanced Kernel &amp; CPU Tuning — Fine-Grained Compiler, LTO, BORE Scheduler &amp; Tick Rate</caption>
-      <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-2-tuning.png</image>
+      <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-os-kernel-updater/main/assets/screenshots/screenshot-2-tuning.png</image>
     </screenshot>
     <screenshot>
       <caption>Live Kernel Compilation Progress &amp; Adaptive Build Log Terminal</caption>
-      <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-3-compiling.png</image>
+      <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-os-kernel-updater/main/assets/screenshots/screenshot-3-compiling.png</image>
     </screenshot>
   </screenshots>
   <releases>

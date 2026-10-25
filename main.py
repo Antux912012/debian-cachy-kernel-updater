@@ -139,7 +139,8 @@ class KernelUpdaterWindow(Adw.ApplicationWindow):
         inner_status_box.append(title_badge_row)
 
         current_kernel = self.kernel_manager.get_current_kernel_version()
-        self.status_label = Gtk.Label(label=f"Current Kernel: {current_kernel}", halign=Gtk.Align.START)
+        host_os_name = self.kernel_manager.host_distro.get("name", "Debian/Ubuntu")
+        self.status_label = Gtk.Label(label=f"Current Kernel: {current_kernel}  •  Host OS: {host_os_name}", halign=Gtk.Align.START)
         self.status_label.add_css_class("body")
         inner_status_box.append(self.status_label)
 
