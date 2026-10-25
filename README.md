@@ -5,11 +5,28 @@ A modern **GTK4 / Libadwaita** application designed for Debian systems to check,
 ![Debian](https://img.shields.io/badge/Debian-Bookworm%20%2B-A81D33?logo=debian&logoColor=white)
 ![GTK4](https://img.shields.io/badge/GUI-GTK4%20%2F%20Libadwaita-00A896?logo=gnome&logoColor=white)
 ![Python](https://img.shields.io/badge/Language-Python%203-3776AB?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.1.3-00A896.svg)
+![Version](https://img.shields.io/badge/version-1.1.4-00A896.svg)
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
 <p align="center">
   <img src="assets/logo_256.png" alt="Debian CachyOS Kernel Updater Logo" width="180">
+</p>
+
+## 📸 Application Screenshots
+
+### 1. Main Dashboard — Kernel Version Selection, Build Environment & Secure Boot Status
+<p align="center">
+  <img src="assets/screenshots/screenshot-1-main.png" alt="Main Dashboard - Kernel Selection and Secure Boot Status" width="860">
+</p>
+
+### 2. Advanced Kernel & CPU Tuning — Fine-Grained Compiler, LTO, BORE Scheduler & Tick Rate
+<p align="center">
+  <img src="assets/screenshots/screenshot-2-tuning.png" alt="Advanced Kernel and CPU Tuning Options" width="860">
+</p>
+
+### 3. Live Kernel Compilation Progress & Adaptive Build Log Terminal
+<p align="center">
+  <img src="assets/screenshots/screenshot-3-compiling.png" alt="Live Kernel Compilation and Build Log Terminal" width="860">
 </p>
 
 > [!CAUTION]
@@ -99,13 +116,13 @@ sudo apt install cachy-kernel-updater
 
 ### Method 2: Direct `.deb` Package Download
 
-Download the pre-compiled `.deb` package from the [v1.1.3 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.3):
+Download the pre-compiled `.deb` package from the [v1.1.4 Release Page](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/tag/v1.1.4):
 
-* 📦 **[cachy-kernel-updater_1.1.3_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.3/cachy-kernel-updater_1.1.3_all.deb)**
+* 📦 **[cachy-kernel-updater_1.1.4_all.deb](https://github.com/Antux912012/debian-cachy-kernel-updater/releases/download/v1.1.4/cachy-kernel-updater_1.1.4_all.deb)**
 
 Install it using `apt` (which automatically installs any missing dependencies):
 ```bash
-sudo apt install -y ./cachy-kernel-updater_1.1.3_all.deb
+sudo apt install -y ./cachy-kernel-updater_1.1.4_all.deb
 ```
 
 ---
@@ -114,7 +131,7 @@ sudo apt install -y ./cachy-kernel-updater_1.1.3_all.deb
 
 Download and install the standalone `.flatpak` bundle:
 ```bash
-flatpak install --user cachy-kernel-updater_1.1.3.flatpak
+flatpak install --user cachy-kernel-updater_1.1.4.flatpak
 ```
 Or run directly:
 ```bash
@@ -208,20 +225,24 @@ sudo ./sign-kernel.sh --reset-and-recreate ~/kernel-build-deb/Linux-kernel-Cachy
 ```bash
 ./build_deb.sh
 ```
-This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.3_all.deb`.
+This generates the ready-to-install package at `deb_dist/cachy-kernel-updater_1.1.4_all.deb`.
 
 ### Build the Standalone Flatpak Bundle (`.flatpak`)
 ```bash
 ./build_flatpak.sh
 ```
-This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.3.flatpak`.
+This compiles the application in an isolated Flatpak environment and produces `deb_dist/cachy-kernel-updater_1.1.4.flatpak`.
 
 ---
 
 ## Project Structure
 
 ```
-├── assets/                                      # Official CachyOS emblem logo assets
+├── assets/                                      # Official CachyOS emblem logo & screenshot assets
+│   ├── screenshots/                             # Official AppStream & GitHub UI screenshots
+│   │   ├── screenshot-1-main.png                # Main dashboard & Secure Boot status
+│   │   ├── screenshot-2-tuning.png              # Advanced Kernel & CPU tuning options
+│   │   └── screenshot-3-compiling.png           # Live compilation progress & terminal log
 │   ├── logo_48.png                              # 48x48 icon
 │   ├── logo_128.png                             # 128x128 icon
 │   ├── logo_256.png                             # 256x256 icon
@@ -262,6 +283,10 @@ We express our sincerest gratitude to the CachyOS developers for their continuou
 ---
 
 ## 📜 Changelog
+
+### v1.1.4
+- **Official Application Screenshots & AppStream Catalog Metadata**: Added 3 high-resolution UI screenshots (`screenshot-1-main.png`, `screenshot-2-tuning.png`, `screenshot-3-compiling.png`) to the GitHub documentation and embedded AppStream `<screenshots>` metadata + composed `app-info` catalog inside the Flatpak bundle and `.deb` package for GNOME Software Center, KDE Discover, and Bazaar.
+- **Updated Debian & Flatpak Releases**: Rebuilt `cachy-kernel-updater_1.1.4_all.deb` and `cachy-kernel-updater_1.1.4.flatpak` inside the isolated `dev-debian` Podman container environment.
 
 ### v1.1.3
 - **Fixed Flatpak UEFI Secure Boot Recognition**: Added direct kernel EFI variable inspection (`/sys/firmware/efi/efivars/SecureBoot-*`, `/run/host/sys/firmware/efi/efivars/SecureBoot-*`, and host `od`/`mokutil` bridge) and fixed `sign-kernel.sh --status` to run without requiring `/run/lock` exclusive locks.

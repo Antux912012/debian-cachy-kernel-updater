@@ -59,6 +59,7 @@ modules:
 
       - install -D -m 644 org.cachyos.debian.kernelupdater.desktop ${FLATPAK_DEST}/share/applications/org.cachyos.debian.kernelupdater.desktop
       - install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml ${FLATPAK_DEST}/share/metainfo/org.cachyos.debian.kernelupdater.metainfo.xml
+      - install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml ${FLATPAK_DEST}/share/appdata/org.cachyos.debian.kernelupdater.appdata.xml
 
       - install -D -m 644 assets/org.cachyos.debian.kernelupdater.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/org.cachyos.debian.kernelupdater.svg
       - install -D -m 644 assets/logo_48.png ${FLATPAK_DEST}/share/icons/hicolor/48x48/apps/org.cachyos.debian.kernelupdater.png

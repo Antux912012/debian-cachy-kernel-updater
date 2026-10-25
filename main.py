@@ -11,7 +11,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Gio
 
 from kernel_manager import KernelManager
 
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 
 class KernelUpdaterWindow(Adw.ApplicationWindow):
     def __init__(self, app):

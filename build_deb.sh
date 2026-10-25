@@ -37,9 +37,10 @@ Description: Debian CachyOS Kernel Installer & Updater (GTK4/Adwaita)
  rollback CachyOS Linux kernels on Debian systems.
 EOF
 
-echo "=== Copying application files ==="
+echo "===Copying application files ==="
 cp -v main.py kernel_manager.py Containerfile sign-kernel.sh "${DEB_DIR}/usr/share/cachy-kernel-updater/"
 cp -rv assets "${DEB_DIR}/usr/share/cachy-kernel-updater/"
+chmod -R a+rX "${DEB_DIR}/usr/share/cachy-kernel-updater/assets"
 chmod 644 "${DEB_DIR}/usr/share/cachy-kernel-updater/"*.*
 chmod 755 "${DEB_DIR}/usr/share/cachy-kernel-updater/sign-kernel.sh"
 

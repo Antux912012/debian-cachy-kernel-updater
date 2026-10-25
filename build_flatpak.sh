@@ -72,12 +72,59 @@ EOF
     # 4. Install desktop, metainfo, and icons
     install -D -m 644 org.cachyos.debian.kernelupdater.desktop "${FLATPAK_DEST}/share/applications/org.cachyos.debian.kernelupdater.desktop"
     install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml "${FLATPAK_DEST}/share/metainfo/org.cachyos.debian.kernelupdater.metainfo.xml"
+    install -D -m 644 org.cachyos.debian.kernelupdater.metainfo.xml "${FLATPAK_DEST}/share/appdata/org.cachyos.debian.kernelupdater.appdata.xml"
     install -D -m 644 assets/org.cachyos.debian.kernelupdater.svg "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/org.cachyos.debian.kernelupdater.svg"
     install -D -m 644 assets/logo_48.png "${FLATPAK_DEST}/share/icons/hicolor/48x48/apps/org.cachyos.debian.kernelupdater.png"
     install -D -m 644 assets/logo_128.png "${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/org.cachyos.debian.kernelupdater.png"
     install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/org.cachyos.debian.kernelupdater.png"
     install -D -m 644 assets/logo_512.png "${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/org.cachyos.debian.kernelupdater.png"
     install -D -m 644 assets/logo_256.png "${FLATPAK_DEST}/share/pixmaps/org.cachyos.debian.kernelupdater.png"
+
+    if command -v appstreamcli >/dev/null 2>&1; then
+        echo "[*] Composing AppStream catalog metadata (with screenshots) for Software Center & Bazaar..."
+        appstreamcli compose \
+            --origin="${APP_ID}" \
+            --prefix=/ \
+            --result-root="${FLATPAK_DEST}" \
+            --data-dir="${FLATPAK_DEST}/share/app-info/xmls" \
+            --icons-dir="${FLATPAK_DEST}/share/app-info/icons/flatpak" \
+            --media-dir="${FLATPAK_DEST}/share/app-info/media" \
+            --media-baseurl="https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots" \
+            "${FLATPAK_DEST}" || true
+    fi
+
+    # Inject full <screenshots> block into the composed AppStream XML so Software Center, KDE Discover, and Bazaar always display them even before or without remote media mirroring
+    python3 - "${FLATPAK_DEST}/share/app-info/xmls/${APP_ID}.xml.gz" "${FLATPAK_DEST}/share/app-info/xmls/flatpak.xml.gz" << 'PYEOF'
+import gzip, sys, os, xml.etree.ElementTree as ET
+
+xml_gz_path = sys.argv[1]
+flatpak_gz_path = sys.argv[2]
+
+if os.path.exists(xml_gz_path):
+    with gzip.open(xml_gz_path, "rt", encoding="utf-8") as f:
+        content = f.read()
+    if "<screenshots>" not in content:
+        screenshots_xml = """    <screenshots>
+      <screenshot type="default">
+        <caption>Main Dashboard — Kernel Selection, Isolated Container Build &amp; UEFI Secure Boot Status</caption>
+        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-1-main.png</image>
+      </screenshot>
+      <screenshot>
+        <caption>Advanced Kernel &amp; CPU Tuning — Fine-Grained Compiler, LTO, BORE Scheduler &amp; Tick Rate</caption>
+        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-2-tuning.png</image>
+      </screenshot>
+      <screenshot>
+        <caption>Live Kernel Compilation Progress &amp; Adaptive Build Log Terminal</caption>
+        <image type="source" width="1296" height="770">https://raw.githubusercontent.com/Antux912012/debian-cachy-kernel-updater/main/assets/screenshots/screenshot-3-compiling.png</image>
+      </screenshot>
+    </screenshots>
+"""
+        content = content.replace("    <releases>", screenshots_xml + "    <releases>", 1)
+        with gzip.open(xml_gz_path, "wt", encoding="utf-8") as f:
+            f.write(content)
+    with open(xml_gz_path, "rb") as src, open(flatpak_gz_path, "wb") as dst:
+        dst.write(src.read())
+PYEOF
 
     # 5. Finalize permissions and export to OSTree repository
     flatpak build-finish "${BUILD_DIR}" \
@@ -96,6 +143,7 @@ EOF
         --system-talk-name=org.freedesktop.PolicyKit1
 
     flatpak build-export "${REPO_DIR}" "${BUILD_DIR}"
+    flatpak build-update-repo "${REPO_DIR}" || true
 fi
 
 echo "=== Packaging Flatpak Bundle: ${BUNDLE_FILE} ==="

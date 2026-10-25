@@ -4,7 +4,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 cd "$DIR"
 
-VERSION="${VERSION:-1.1.3}"
+VERSION="${VERSION:-1.1.4}"
 KEY_ID="620D1EA9AC45150575E70825BEE28F80428556CF"
 REPO_URL="https://antux912012.github.io/debian-cachy-kernel-updater"
 REPO_DIR="/tmp/cachyos-apt-repo-staging"
@@ -29,6 +29,8 @@ fi
 cp -v deb_dist/cachy-kernel-updater_*.deb "$REPO_DIR/pool/main/c/cachy-kernel-updater/"
 cp -v deb_dist/cachy-kernel-updater_*.flatpak "$REPO_DIR/"
 cp -v assets/logo_256.png "$REPO_DIR/logo.png"
+mkdir -p "$REPO_DIR/screenshots"
+cp -v assets/screenshots/*.png "$REPO_DIR/screenshots/" 2>/dev/null || true
 
 echo "=== 3. Generating Packages and Packages.gz ==="
 cd "$REPO_DIR"
@@ -202,6 +204,16 @@ sudo apt install cachy-kernel-updater</code></pre>
         <li><a href="KEY.gpg">Repository GPG Public Key (Binary Dearmored)</a></li>
       </ul>
       <p>Source code, issue tracker, and releases available on <a href="https://github.com/Antux912012/debian-cachy-kernel-updater">GitHub: Antux912012/debian-cachy-kernel-updater</a>.</p>
+    </div>
+
+    <div class="card">
+      <h2>📸 Application Screenshots</h2>
+      <p><strong>1. Main Dashboard — Kernel Selection, Isolated Container Build &amp; UEFI Secure Boot Status:</strong></p>
+      <p><img src="screenshots/screenshot-1-main.png" alt="Main Dashboard" style="width:100%; border-radius:8px; border:1px solid var(--border);"></p>
+      <p><strong>2. Advanced Kernel &amp; CPU Tuning — Fine-Grained Compiler, LTO, BORE Scheduler &amp; Tick Rate:</strong></p>
+      <p><img src="screenshots/screenshot-2-tuning.png" alt="Advanced Tuning" style="width:100%; border-radius:8px; border:1px solid var(--border);"></p>
+      <p><strong>3. Live Kernel Compilation Progress &amp; Adaptive Build Log Terminal:</strong></p>
+      <p><img src="screenshots/screenshot-3-compiling.png" alt="Live Compilation" style="width:100%; border-radius:8px; border:1px solid var(--border);"></p>
     </div>
 
     <div class="card">
